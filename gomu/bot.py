@@ -3,6 +3,9 @@ import numpy as np
 import random
 from scipy.signal import convolve2d
 
+import torch
+from einops import rearrange
+
 def convolution_calc(x, kernel1, kernel2):
     return (convolve2d(x, kernel1, mode='valid'), convolve2d(x, kernel2, mode='valid'))
 
@@ -24,15 +27,68 @@ class Agent():
         self.turn = turn
         self.n_to_win = n_to_win
 
-    # def is_your_turn(self, ply):
-
     def forward(self, state, free_spaces):
         return NotImplemented
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
         return self.forward(*args, **kwds)
 
+    # Validate the predicted zone was possible or not.
+    def validate(self, predicted, free_spaces):
+        return filter(predicted, lambda pos: pos not in free_spaces)
 
+class PytorchAgentHeritage(Agent):
+    def __init__(self, model, **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+
+    def preprocess_state(self, state):
+        torch_state = torch.from_numpy(state)
+        nrow, ncol = torch_state.shape[-2], torch_state.shape[-1]
+        torch_state = torch_state.view(-1, nrow*ncol)
+
+        return torch_state
+
+    def process_free_spaces(self, batch_free_spaces, shape):
+        batch, nrow, ncol = shape
+        tmp = torch.zeros((batch, nrow*ncol), dtype=torch.long)
+        for b, free_spaces in enumerate(batch_free_spaces):
+            for pos in free_spaces:
+                idx = pos[0] + pos[1] * ncol 
+                tmp[b, idx] = 1
+        return tmp
+
+    def model_predict(self, state):
+        if isinstance(state, np.ndarray):
+            state = self.preprocess_state(state)
+        pred = self.model(state)
+        return pred
+    
+    def format_pos(self, indices, ncol):
+        return [(idx//ncol, idx%ncol) for idx in indices]
+    
+    def predict_next_pos(self, batch_state, batch_free_spaces, top_k):
+        processed_batch_free_spaces = self.process_free_spaces(batch_free_spaces, batch_state.shape)
+        pred = self.model_predict(batch_state)
+
+        not_possible = processed_batch_free_spaces * -float("inf")
+        pred += not_possible
+        
+        predicted_pos = [self.format_pos(batch, ncol=batch_state.shape[-1]) for batch in torch.topk(pred, top_k, -1)["indices"].tolist()]
+        return predicted_pos
+    
+    def for_singlebatch(self, state, free_spaces, top_k):
+        batch_state = np.expand_dims(state, 0)
+        batch_free_spaces = np.expand_dims(free_spaces, 0)
+        return self.predict_next_pos(batch_state=batch_state, batch_free_spaces=batch_free_spaces)[0]
+
+    @classmethod
+    def from_trained(cls, cpk_path, **kwargs):
+        model = torch.load(cpk_path)["model"]
+        return cls(model=model, **kwargs)
+
+
+# Actually just stupid guy
 class RandomMover(Agent):
     def forward(self, state, free_spaces):
         return random.choice(free_spaces)
@@ -73,3 +129,27 @@ class Nerd(Agent):
 
         return random.choice(winning_zones+losing_zones)
     
+
+class StatisticalSimlaritySearchingIntelligentGuy(Agent):
+    def __init__(self, turn, n_to_win, dataset_path):
+        super().__init__(turn, n_to_win)
+        self.dataset = self.load_dataset(dataset_path=dataset_path)
+
+    def load_dataset(self, dataset_path):
+        return 
+
+    def search_similar(self):
+        return
+
+    def forward(self, state, free_spaces):
+        next_poses = self.search_similar(state)
+        possible_poses = self.validate(next_poses, free_spaces)
+
+        return
+    
+
+
+# class ItMayBeSupervisedLearningIsBetterThanReinforcementLearningButIdontThinksothisguy(Agent):
+#     def __init__(self, turn, n_to_win, )
+
+#     @classmethod
