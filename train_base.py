@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
+import einops
 
 from pathlib import Path
 import tqdm
@@ -46,8 +47,13 @@ class GOMUDataset(Dataset):
     def __getitem__(self, idx):
         turns = torch.sum(self.x[idx]!=0)
         is_white = not bool(turns % 2)
-        x = self.x[idx].to(self.device) if is_white else -self.x[idx].to(self.device)
-        y = self.y[idx].to(self.device)
+        x = self.x[idx] if is_white else -self.x[idx]
+        y = self.y[idx]
+
+        x = einops.rearrange(x, "h w -> 1 h w")
+        y = einops.rearrange(y, "h w -> 1 h w")
+        y = y.argmax()
+
         return x, y
 
     def __len__(self):
@@ -76,6 +82,7 @@ def one_loop(loader, net, optimizer, is_training=True):
     if is_training:
         for (X, Y) in tqdm.tqdm(loader, desc="Training..."):
             pred = net(X)
+            pred = einops.rearrange(pred, "b c h w -> b (c h w)")
             output = loss(pred, Y)
             output.backward()
             optimizer.step()
@@ -85,6 +92,7 @@ def one_loop(loader, net, optimizer, is_training=True):
         with torch.no_grad():
             for (X, Y) in tqdm.tqdm(loader, desc="Testing..."):
                 pred = net(X)
+                pred = einops.rearrange(pred, "b c h w -> b (c h w)")
                 output = loss(pred, Y)
                 optimizer.step()
 
