@@ -4,6 +4,7 @@ import random
 from scipy.signal import convolve2d
 
 import torch
+import torch.nn as nn
 from einops import rearrange
 
 def convolution_calc(x, kernel1, kernel2):
@@ -37,6 +38,7 @@ class Agent():
     def validate(self, predicted, free_spaces):
         return filter(predicted, lambda pos: pos not in free_spaces)
 
+# MCTS implementation
 class PytorchAgentHeritage(Agent):
     def __init__(self, model, **kwargs):
         super().__init__(**kwargs)
@@ -83,8 +85,9 @@ class PytorchAgentHeritage(Agent):
         return self.predict_next_pos(batch_state=batch_state, batch_free_spaces=batch_free_spaces)[0]
 
     @classmethod
-    def from_trained(cls, cpk_path, **kwargs):
-        model = torch.load(cpk_path)["model"]
+    def from_trained(cls, cpk_path, model: nn.Module, **kwargs):
+        checkpoint = torch.load(cpk_path)["model"]
+        model = model.load_state_dict(checkpoint)
         return cls(model=model, **kwargs)
 
 
