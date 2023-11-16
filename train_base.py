@@ -73,7 +73,7 @@ train_size = int(0.8 * len(full_dataset))
 test_size = len(full_dataset) - train_size
 train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
 
-batch_size = 64
+batch_size = 4096
 train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
 
@@ -84,6 +84,7 @@ learning_rate = 0.001
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
 
 save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
+save_base_path.mkdir(exist_ok=True)
 
 def one_loop(loader, net, optimizer, is_training=True):
     _loss = []
@@ -105,6 +106,7 @@ def one_loop(loader, net, optimizer, is_training=True):
                 pred = einops.rearrange(pred, "b c h w -> b (c h w)")
                 output = loss(pred, Y)
                 optimizer.step()
+                _loss.append(output.item())
 
     return sum(_loss) / len(_loss)
 
@@ -120,7 +122,7 @@ for epoch in range(nb_epoch):
     test_losses.append(test_losses)
 
     save_path = save_base_path / f"{epoch}.pkl"
-    torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, )
+    torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, save_path)
 
     print(f"{epoch}th EPOCH DONE!! ---- Train: {train_loss} | Test: {test_loss}")
 
