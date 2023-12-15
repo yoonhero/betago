@@ -35,7 +35,6 @@ class SE(nn.Module):
         y = self.fc(y).view(b, c, 1, 1) # [b, c, 1, 1]
         return x * y
 
-
 class MBConv(nn.Module):
     def __init__(self, inp, oup, downsample=False, **kwargs):
         super().__init__()
@@ -81,7 +80,7 @@ class MBConv(nn.Module):
         if self.downsample:
             return self.proj(self.pool(x)) + self.conv(x)
         
-        x = torch.cat((x, xt), 1)
+        x = torch.cat((x, xt), dim=1)
         x = self.resid_proj(x)
         return self.proj(x) + self.conv(x)
 
@@ -176,11 +175,11 @@ class Transformer(nn.Module):
         self.attn = Attention(inp, oup, image_size, heads, dim_head, dropout)
         self.ff = FeedForward(oup, hidden_dim, dropout)
 
-        self.attn = nn.Sequential(
-            Rearrange("b c ih iw -> b (ih iw) c"),
-            PreNorm(inp, self.attn, nn.LayerNorm),
-            Rearrange("b (ih iw) c -> b c ih iw", ih=self.ih, iw=self.iw)
-        )
+        # self.attn = nn.Sequential(
+        #     Rearrange("b c ih iw -> b (ih iw) c"),
+        #     PreNorm(inp, self.attn, nn.LayerNorm),
+        #     Rearrange("b (ih iw) c -> b c ih iw", ih=self.ih, iw=self.iw)
+        # )
 
         self.ff = nn.Sequential(
             Rearrange("b c ih iw -> b (ih iw) c"),
@@ -189,10 +188,10 @@ class Transformer(nn.Module):
         )
 
     def forward(self, x):
-        if self.downsample:
-            x = self.proj(self.pool1(x)) + self.attn(self.pool2(x))
-        else:
-            x = x + self.attn(x)
+        # if self.downsample:
+            # x = self.proj(self.pool1(x)) + self.attn(self.pool2(x))
+        # else:
+            # x = x + self.attn(x)
         x = x + self.ff(x)
         return x
 
@@ -217,7 +216,7 @@ class Unet(nn.Module):
             self.upsample.append(MBConv(inp=inp, oup=oup, downsample=False))
 
         self.latent_transformer = Transformer(channels[-1], channels[-1], (5, 5))
-        self.outc = nn.Conv2d(channels[0], channels[0], 1)
+        # self.outc = nn.Conv2d(channels[0], channels[0], 1)
 
     def forward(self, x):
         tmp = []
@@ -230,13 +229,61 @@ class Unet(nn.Module):
         for i, block in enumerate(self.upsample):
             x = block(x, tmp[-1-i])
         
-        x = self.outc(x)
+        # x = self.outc(x)
+
+        return x
+
+class SimpleCNN(nn.Module):
+    def __init__(self, nrow, ncol, channels):
+        super().__init__()
+        self.nrow = nrow
+        self.ncol = ncol
+
+        self.convs = nn.ModuleList()
+
+        for inp, oup in zip(channels, channels[1:]):
+            # => half
+            conv = nn.Sequential(
+                nn.Conv2d(inp, hidden_dim, 1, 3, 0, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+                nn.GELU(),
+                nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, groups=hidden_dim, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+                nn.GELU(),
+                SE(inp, hidden_dim),
+                nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(oup)
+            )
+            self.convs.append(conv)
+        
+        scale = 2**(len(channels) - 1)
+        final_row, final_col = row / scale, col / scale
+        final = final_row * final_col
+        self.ff = nn.Sequential(
+            Rearrange("b c w h -> b c (w h)"),
+            nn.Linear(final, final*3),
+            nn.GELU(),
+            nn.Linear(final*3, final),
+            nn.GELU(),
+            nn.Linear(final, 1)
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        for conv in convs:
+            x = conv(x)
+
+        x = self.ff(x)
 
         return x
 
 
+def get_total_parameters(net):
+    return sum([i.nelement() for i in net.parameters()])
+
 
 if __name__ == "__main__":
-    net = Unet(20, 20, [1, 10, 20])
-    to_feed = torch.zeros((1, 1, 20, 20))
-    print(net(to_feed))
+    net = Unet(20, 20, [2, 5, 10])
+    print(net.total())
+    to_feed = torch.zeros((1, 2, 20, 20))
+    print(net(to_feed).shape)

@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 import numpy as np
 from pathlib import Path
 import glob
@@ -39,7 +40,7 @@ for index, file_path in enumerate(tqdm(file_list)):
 
         if not i == 0:
             input = board.board.copy()
-            output = np.zeros([ncol, nrow], dtype=np.int8)
+            output = np.zeros([nrow, ncol], dtype=np.int8)
             output[y-1, x-1] = 1
 
             # augmentation
