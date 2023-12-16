@@ -233,6 +233,36 @@ class Unet(nn.Module):
 
         return x
 
+
+class ResBlock(nn.Module):
+    def __init__(self, inp, mid, oup, stride=1):
+        super().__init__()
+
+        self.res_block = nn.Sequential(
+            nn.Conv2d(inp, mid, 3, stride, 1, bias=False),
+            nn.BatchNorm2d(mid),
+            nn.ReLU(),
+            nn.Conv2d(mid, oup, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(oup)
+        )
+        self.activation = nn.ReLU()
+
+        self.downsample = inp != oup or stride != 1
+        if self.downsample:
+            self.down = nn.Sequential(
+                nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+                nn.BatchNorm2d(oup)
+            )
+    
+    def forward(self, x):
+        residual = x
+        out = self.res_block(x)
+        if self.downsample:
+            residual = self.down(residual)
+        out = out + residual
+        out = self.activation(out)
+        return out
+
 class SimpleCNN(nn.Module):
     def __init__(self, nrow, ncol, channels):
         super().__init__()
@@ -244,36 +274,42 @@ class SimpleCNN(nn.Module):
         for inp, oup in zip(channels, channels[1:]):
             # => half
             hidden_dim = inp * 3
-            conv = nn.Sequential(
-                nn.Conv2d(inp, hidden_dim, 1, 3, 0, bias=False),
-                nn.BatchNorm2d(hidden_dim),
-                nn.GELU(),
-                nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, groups=hidden_dim, bias=False),
-                nn.BatchNorm2d(hidden_dim),
-                nn.GELU(),
-                SE(inp, hidden_dim),
-                nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup)
-            )
+
+            conv = ResBlock(inp, hidden_dim, inp)
             self.convs.append(conv)
+
+            downsample = ResBlock(inp, hidden_dim, oup, stride=2)
+            self.convs.append(downsample)
         
         scale = 2**(len(channels) - 1)
         final_row, final_col = self.nrow / scale, self.ncol / scale
-        final = int(final_row * final_col)
+        final = int(final_row * final_col * channels[-1])
         self.ff = nn.Sequential(
-            Rearrange("b c w h -> b c (w h)"),
-            nn.Linear(final, final*3),
-            nn.GELU(),
-            nn.Linear(final*3, final),
-            nn.GELU(),
+            Rearrange("b c w h -> b (c w h)"),
+            nn.Linear(final, final),
+            nn.ReLU(),
             nn.Linear(final, 1),
             nn.Sigmoid()
         )
 
+        self._intialize_weights()
+    
+    def _intialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+
     def forward(self, x):
         for conv in self.convs:
             x = conv(x)
-
         x = self.ff(x)
 
         return x

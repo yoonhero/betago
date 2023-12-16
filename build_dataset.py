@@ -7,7 +7,7 @@ from tqdm import tqdm
 from gomu import GoMuKuBoard
 
 
-file_list = glob.glob("./dataset/raw/gomocup2022results/Freestyle*/*.psq")[:2]
+file_list = glob.glob("./dataset/raw/gomocup2022results/Freestyle*/*.psq")
 output_path = "./dataset/processed"
 Path(output_path).mkdir(exist_ok=True)
 
@@ -75,8 +75,10 @@ for index, file_path in enumerate(tqdm(file_list)):
         # Update the board        
         board.set(x-1, y-1)
 
-    if to_viz:
-        print(winner)
-    results = np.ones_like(inputs) * winner
+    # results = np.ones_like(inputs) * winner
+    results = np.ones((inputs.__len__(), 1))*winner
+    # print(inputs.shape)
+    # print(np.ones_like(inputs).shape)
     # save dataset
     ##np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results)
+    np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results)

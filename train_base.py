@@ -33,20 +33,20 @@ class GOMUDataset(Dataset):
     def _load(self, max_idx):
         inputs = []
         outputs = []
-        winner = []
+        game_results = []
 
         for i in tqdm.tqdm(range(max_idx+1)):
             # inputs, outputs = p.map(self._load_file, list(range(max_idx+1)))
-            _inputs, _outputs, _winners = self._load_file(i)
+            _inputs, _outputs, _results = self._load_file(i)
             inputs.append(_inputs)
             outputs.append(_outputs)
-            winner.append(_winners)
+            game_results.append(_results)
                 
         inputs = np.concatenate(inputs)
         outputs = np.concatenate(outputs)
-        winner = np.concatenate(winner)
+        game_results = np.concatenate(game_results)
         
-        return inputs, outputs, winner
+        return inputs, outputs, game_results
    
     def _load_file(self, i):
         file_path = self.base_path / f"{i:05d}.npz"
@@ -54,16 +54,16 @@ class GOMUDataset(Dataset):
         
         _inputs = data["inputs"]
         _outputs = data["outputs"]
-        _winners = data["results"]
-        
-        return _inputs, _outputs, _winners
+        _results = data["results"]
+
+        return _inputs, _outputs, _results
 
     # Return [Board, NextPos, Win%]
     def __getitem__(self, idx):
         # x, y = self._load_file(idx)
         randomnum = random.randint(0, 12)
         to_get_idx = idx*12+randomnum
-        board, next_pos, winner = self.board_state[to_get_idx], self.next_pos[to_get_idx], self.winner[to_get_idx]
+        board, next_pos, game_result = self.board_state[to_get_idx], self.next_pos[to_get_idx], self.winner[to_get_idx]
         # BLACK: 1, WHITE: -1: DRAW=0
         x, y = torch.from_numpy(board), torch.from_numpy(next_pos)
 
@@ -73,44 +73,44 @@ class GOMUDataset(Dataset):
         total_BLACK = torch.sum(x[0])
         total_WHITE = torch.sum(x[1])
         if total_BLACK != total_WHITE:
-            print(total_BLACK, total_WHITE)
-            x = torch.flip(x)
-            winner = -winner
+            # print(total_BLACK, total_WHITE)
+            x[0], x[1] = x[1], x[0]
+            game_result = -game_result
 
         # WIN: 1 | DRAW: 0.5 | LOSE: 0
-        winner = (winner+1)/2
-        winner = torch.from_numpy(winner)
+        game_result = (game_result+1)/2
+        game_result = torch.from_numpy(game_result)
 
         # IMG [B, C, H, W]
        # x = einops.rearrange(x, "2 h w -> h w")
         #y = einops.rearrange(y, "h w -> 1 h w")
         x = x.to(torch.float32)
         y = y.to(torch.float32)
-        winner = winner.to(torch.float32)
+        game_result = game_result.to(torch.float32)
 
-        return x, y, winner
+        return x.to(self.device), y.to(self.device), game_result.to(self.device)
 
     def __len__(self):
         return self.total
 
-total_samples = 10
+total_samples = 14000
 device = "cuda" if torch.cuda.is_available() else "cpu"
 full_dataset = GOMUDataset(total_samples, device=device)
 train_size = int(0.8 * len(full_dataset))
 test_size = len(full_dataset) - train_size
 train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
 
-batch_size = 50
+batch_size = 256
 train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
 
 nrow, ncol = 20, 20
-channels = [2, 8, 20]
+channels = [2, 8, 36]
 #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
 net = SimpleCNN(nrow, ncol, channels).to(device)
 # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
-learning_rate = 0.005
-optimizer = optim.AdamW(net.parameters(), lr=learning_rate, weight_decay=0.1)
+learning_rate = 0.001
+optimizer = optim.Adam(net.parameters(), lr=learning_rate)
 total_parameters = get_total_parameters(net)
 print(total_parameters)
 
@@ -148,6 +148,8 @@ def get_loss(pred, GT, win):
 
 def one_loop(loader, net, optimizer, training, epoch):
     _loss = []
+    num_correct = 0
+    num_samples = 0
 
     if training:
         with tqdm.tqdm(loader) as pbar:
@@ -163,6 +165,9 @@ def one_loop(loader, net, optimizer, training, epoch):
 
                 pbar.set_description(f"{epoch}/{step}")
                 pbar.set_postfix(loss=_loss[-1])
+                
+                num_correct += ((pred>0.5)==win).sum()
+                num_samples += pred.size(0)
 
             net.train()
 
@@ -174,28 +179,31 @@ def one_loop(loader, net, optimizer, training, epoch):
                 output = get_loss(pred, Y, win)
                 _loss.append(output.item())
 
-            pred_pos_pil = tensor2gomuboard(pred[0], nrow, ncol, softmax=True, scale=10)
-            # situation_pil = tensor2gomuboard(X[0], nrow, ncol)
-            ground_true_pil = tensor2gomuboard(Y[0]*2+X[0], nrow, ncol)
-            eval_result_path = save_base_path / f"evalresults/epoch-{epoch}.png"
-            eval_gt_path = save_base_path / f"evalresults/gt-{epoch}.png"
-            pred_pos_pil.save(eval_result_path)
-            ground_true_pil.save(eval_gt_path)
+                num_correct += ((pred>0.5)==win).sum()
+                num_samples += pred.size(0)
 
-    return sum(_loss) / len(_loss)
+            if pred[0].shape.__len__() == 3:
+                pred_pos_pil = tensor2gomuboard(pred[0], nrow, ncol, softmax=True, scale=10)
+                # situation_pil = tensor2gomuboard(X[0], nrow, ncol)
+                ground_true_pil = tensor2gomuboard(Y[0]*2+X[0], nrow, ncol)
+                eval_result_path = save_base_path / f"evalresults/epoch-{epoch}.png"
+                eval_gt_path = save_base_path / f"evalresults/gt-{epoch}.png"
+                pred_pos_pil.save(eval_result_path)
+                ground_true_pil.save(eval_gt_path)
+            
+    return sum(_loss) / len(_loss), num_correct / num_samples
 
 train_losses = []
 test_losses = []
-nb_epoch = 100
+nb_epoch = 20
 for epoch in range(nb_epoch):
-    train_loss = one_loop(train_loader, net, optimizer, True, epoch)
-    test_loss = one_loop(test_loader, net, optimizer, False, epoch)
+    train_loss, train_accuracy= one_loop(train_loader, net, optimizer, True, epoch)
+    test_loss, test_accuracy = one_loop(test_loader, net, optimizer, False, epoch)
 
     train_losses.append(train_loss)
     test_losses.append(test_losses)
 
-    run.log({"train/loss": train_loss})
-    run.log({"test/loss": test_loss})
+    run.log({"train/loss": train_loss, "train/acc": train_accuracy, "test/loss": test_loss, "test/acc": test_accuracy})
 
     save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
     torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, save_path)
@@ -205,11 +213,11 @@ for epoch in range(nb_epoch):
 
 # fig, ax = plt.subplots(1, 2)
 
-x = np.arange(nb_epoch)
-plt.plot(x, train_losses)
-plt.plot(x, test_losses)
-plt.savefig("base_training_results.png", dpi=500)
-plt.show()
+# x = np.arange(nb_epoch)
+# plt.plot(x, train_losses)
+# plt.plot(x, test_losses)
+# plt.savefig("base_training_results.png", dpi=500)
+# plt.show()
 # ax[0].plot(x, train_losses)
 # ax[1].plot(x, test_losses)
 # fig.savefig("base_training_results.png", dpi=500)
