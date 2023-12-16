@@ -47,7 +47,7 @@ class PytorchAgentHeritage(Agent):
     def preprocess_state(self, state):
         torch_state = torch.from_numpy(state)
         nrow, ncol = torch_state.shape[-2], torch_state.shape[-1]
-        torch_state = torch_state.view(-1, nrow*ncol)
+        torch_state = torch_state.view(-1, nrow*ncol).unsqueeze(0)
 
         return torch_state
 
@@ -63,7 +63,7 @@ class PytorchAgentHeritage(Agent):
     def model_predict(self, state):
         if isinstance(state, np.ndarray):
             state = self.preprocess_state(state)
-        pred = self.model(state)
+        pred, _ = self.model(state)
         return pred
     
     def format_pos(self, indices, ncol):
@@ -87,7 +87,7 @@ class PytorchAgentHeritage(Agent):
     @classmethod
     def from_trained(cls, cpk_path, model: nn.Module, **kwargs):
         checkpoint = torch.load(cpk_path)["model"]
-        model = model.load_state_dict(checkpoint)
+        model = model(20, 20, [2, 64, 128, 256, 128, 64, 1]).load_state_dict(state_dict=checkpoint)
         return cls(model=model, **kwargs)
 
 

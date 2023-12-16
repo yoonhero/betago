@@ -93,6 +93,7 @@ class GOMUDataset(Dataset):
     def __len__(self):
         return self.total
 
+
 total_samples = 14000
 device = "cuda" if torch.cuda.is_available() else "cpu"
 full_dataset = GOMUDataset(total_samples, device=device)

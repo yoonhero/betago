@@ -34,8 +34,8 @@ class GomokuGUI:
         pygame.display.set_caption("AlphaGomu")
         self.screen = pygame.display.set_mode((self.w, self.h))
         self.screen.fill(Colors.WHITE)
-        self.player_colors = {1: Colors.WHITE, -1: Colors.BLACK}
-        self.player_names = {1: "White", -1: "Black"}
+        self.player_colors = {-11: Colors.WHITE, 1: Colors.BLACK}
+        self.player_names = {-1: "White", 1: "Black"}
         self.board = GoMuKuBoard(rows, cols, n_to_win)
         
         self.with_human = bot == None
@@ -163,7 +163,7 @@ class GomokuGUI:
             if not self.is_human_first:
                 self.ai_turn()
 
-        while not self.board.is_normal_play_done() and not self.board.is_draw():
+        while not self.board.is_gameover() and not self.board.is_draw():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()

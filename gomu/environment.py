@@ -9,7 +9,6 @@ import matplotlib.animation as animation
 from copy import deepcopy
 
 from .board import GoMuKuBoard
-from .bot import *
 from .gui import GomokuGUI
 from .utils import save_record
 from .errors import BoardError, BotError, RLEnvError
@@ -18,7 +17,7 @@ from .errors import ThreadingErrorHandler
 
 class RLEnv():
     # competitor: None, RandomMover, Nerd
-    def __init__(self, ngyms, nrow, ncol, n_to_win, competitor=None, viz_gym=False, viz_training_status=False, engine_params=None):
+    def __init__(self, ngyms, nrow, ncol, n_to_win, viz_gym=False, viz_training_status=False, engine=None):
         # environment's requirements
         # start episode
         # manage the flow of the game -> give a environment state for rl agent learning.
@@ -40,11 +39,12 @@ class RLEnv():
         # Only save the winning position(?)
         self.results = self.initialize_empty_list(ngyms, list())
 
-        self.is_competitor_exist = competitor != None
-        engines = {"RandomMover": RandomMover, "Nerd": Nerd}
+        self.is_competitor_exist = engine != None
+        #engines = {"RandomMover": RandomMover, "Nerd": Nerd}
         
-        if competitor != None:
-            self.engine = engines[competitor](**engine_params)
+        if self.is_competitor_exist != None:
+            #self.engine = engines[competitor](**engine_params)
+            self.engine = engine
 
             # TODO: Extend API design for parallel learning pipeline
             if self.gyms[0].whose_turn(self.gyms[0].ply) == self.engine.turn:

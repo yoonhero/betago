@@ -1,21 +1,23 @@
 import numpy as np
 from argparse import ArgumentParser
+import os
 
 from gomu import GoMuKuBoard
-from gomu import Nerd
 from gomu.gui import GomokuGUI
+from bot import *
 
-parser = ArgumentParser()
-parser.add_argument("--gui", action="store_true")
+from base import PocliyValueNet
 
-args = parser.parse_args()
-is_gui = args.gui
+is_gui = False
+#if os.environ["GUI"]:
+ #   is_gui = True
 
 nrow = 5
 ncol = 5
 
 board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=1)
-bot = Nerd(-1, 5)
+# bot = Nerd(-1, 5)
+bot = PytorchAgentHeritage.from_trained("./tmp/history_1702722992049/ckpt/epoch-19.pkl", model=PocliyValueNet, turn=1, n_to_win=5)
 
 
 if not is_gui:
@@ -28,7 +30,8 @@ if not is_gui:
             continue
 
         print("Bot Thinking...")
-        freeee = np.argwhere(board.board==0).tolist()
+        # freeee = np.argwhere(board.board==0).tolist()
+        freeee = board.free_spaces(1)
         selected_pos = bot(board.board, freeee)
         selected_x, selected_y = selected_pos
         board.set(selected_x, selected_y)
