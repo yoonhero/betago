@@ -26,11 +26,11 @@ def tensor2gomuboard(tensor, nrow, ncol, softmax=False, scale=1.0):
     img = torch.zeros((nrow, ncol, 3))
 
     # white
-    WHITE = torch.tensor([234., 232., 234.])
+    WHITE = torch.tensor([234., 232., 234.])/255
     # black
-    BLACK = torch.tensor([94., 93., 94.])
+    BLACK = torch.tensor([94., 93., 94.])/255
     # blue
-    BLUE = torch.tensor([75., 129., 209.])
+    BLUE = torch.tensor([208, 239, 255])/255
 
     img[tensor==1] = WHITE
     img[tensor==-1] = BLACK

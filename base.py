@@ -263,7 +263,7 @@ class ResBlock(nn.Module):
         out = self.activation(out)
         return out
 
-class SimpleCNN(nn.Module):
+class PocliyValueNet(nn.Module):
     def __init__(self, nrow, ncol, channels):
         super().__init__()
         self.nrow = nrow
@@ -275,15 +275,21 @@ class SimpleCNN(nn.Module):
             # => half
             hidden_dim = inp * 3
 
-            conv = ResBlock(inp, hidden_dim, inp)
+            # conv = ResBlock(inp, hidden_dim, inp)
+            conv = ResBlock(inp, hidden_dim, oup)
             self.convs.append(conv)
 
-            downsample = ResBlock(inp, hidden_dim, oup, stride=2)
-            self.convs.append(downsample)
-        
-        scale = 2**(len(channels) - 1)
-        final_row, final_col = self.nrow / scale, self.ncol / scale
-        final = int(final_row * final_col * channels[-1])
+            #downsample = ResBlock(inp, hidden_dim, oup, stride=2)
+            #self.convs.append(downsample)
+
+        # #2. Without downsampling??
+        # scale = 2**(len(channels) - 1)
+        # final_row, final_col = self.nrow / scale, self.ncol / scale
+        # final = int(final_row * final_col * channels[-1])
+        final = nrow * ncol * channels[-1]
+        self.conv1x = nn.Sequential(
+            nn.Conv2d(channels[-1], channels[-1], 1, 1, 0),
+        )
         self.ff = nn.Sequential(
             Rearrange("b c w h -> b (c w h)"),
             nn.Linear(final, final),
@@ -310,9 +316,11 @@ class SimpleCNN(nn.Module):
     def forward(self, x):
         for conv in self.convs:
             x = conv(x)
-        x = self.ff(x)
+        
+        policy = self.conv1x(x)
+        value = self.ff(x)
 
-        return x
+        return policy, value
 
 
 def get_total_parameters(net):

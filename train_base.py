@@ -17,7 +17,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-from base import SimpleCNN, Unet, Transformer, get_total_parameters
+from base import PocliyValueNet, Unet, Transformer, get_total_parameters
 from viz import tensor2gomuboard
 
 class GOMUDataset(Dataset):
@@ -83,7 +83,7 @@ class GOMUDataset(Dataset):
 
         # IMG [B, C, H, W]
        # x = einops.rearrange(x, "2 h w -> h w")
-        #y = einops.rearrange(y, "h w -> 1 h w")
+        y = einops.rearrange(y, "h w -> 1 h w")
         x = x.to(torch.float32)
         y = y.to(torch.float32)
         game_result = game_result.to(torch.float32)
@@ -105,9 +105,10 @@ train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
 
 nrow, ncol = 20, 20
-channels = [2, 8, 36]
+# channels = [2, 8, 36]
+channels = [2, 64, 128, 256, 128, 64, 1]
 #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
-net = SimpleCNN(nrow, ncol, channels).to(device)
+net = PocliyValueNet(nrow, ncol, channels).to(device)
 # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
 learning_rate = 0.001
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
@@ -133,18 +134,18 @@ run = wandb.init(
   config={**model_cfg, **exp_cfg}
 )
 
-def get_loss(pred, GT, win):
-    if pred.shape[1] != 1:
-        flatten_pred = einops.rearrange(pred, "b c h w -> b (c h w)")
-        y = einops.rearrange(GT, "b c h w -> b (c h w)")
-        y = y.argmax(-1)
-        cross_en_loss = cross_loss(flatten_pred, y)
-        mse_loss = mse(pred, GT)
-        output = alpha*cross_en_loss + (1-alpha)*mse_loss
-    else:
-        #output = (pred, win)
-        output = bce(pred, win)
-    return output
+def get_loss(policy, value, GT, win):
+    ypred = policy.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
+    # flatten_pred = einops.rearrange(policy, "b c h w -> b (c h w)")
+    # y = einops.rearrange(GT, "b c h w -> b (c h w)")
+    y = GT.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
+    y = y.argmax(-1)
+    cross_en_loss = cross_loss(ypred, y)
+    mse_loss = mse(policy, GT)
+    policy_loss = alpha*cross_en_loss + (1-alpha)*mse_loss
+    value_loss = bce(value, win)
+
+    return policy_loss+value_loss
 
 def one_loop(loader, net, optimizer, training, epoch):
     _loss = []
@@ -155,8 +156,8 @@ def one_loop(loader, net, optimizer, training, epoch):
         with tqdm.tqdm(loader) as pbar:
             for step, (X, Y, win) in enumerate(pbar):
                 net.train()
-                pred = net(X)
-                loss = get_loss(pred, Y, win)
+                policy, value = net(X)
+                loss = get_loss(policy, value, Y, win)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -166,30 +167,27 @@ def one_loop(loader, net, optimizer, training, epoch):
                 pbar.set_description(f"{epoch}/{step}")
                 pbar.set_postfix(loss=_loss[-1])
                 
-                num_correct += ((pred>0.5)==win).sum()
-                num_samples += pred.size(0)
-
-            net.train()
+                num_correct += ((value>0.5)==win).sum()
+                num_samples += value.size(0)
 
     if not training:
         with torch.no_grad():
             net.eval()
             for (X, Y, win) in tqdm.tqdm(loader, desc="Testing..."):
-                pred = net(X)
-                output = get_loss(pred, Y, win)
+                policy, value = net(X)
+                output = get_loss(policy, value, Y, win)
                 _loss.append(output.item())
 
-                num_correct += ((pred>0.5)==win).sum()
-                num_samples += pred.size(0)
+                num_correct += ((value>0.5)==win).sum()
+                num_samples += value.size(0)
 
-            if pred[0].shape.__len__() == 3:
-                pred_pos_pil = tensor2gomuboard(pred[0], nrow, ncol, softmax=True, scale=10)
-                # situation_pil = tensor2gomuboard(X[0], nrow, ncol)
-                ground_true_pil = tensor2gomuboard(Y[0]*2+X[0], nrow, ncol)
-                eval_result_path = save_base_path / f"evalresults/epoch-{epoch}.png"
-                eval_gt_path = save_base_path / f"evalresults/gt-{epoch}.png"
-                pred_pos_pil.save(eval_result_path)
-                ground_true_pil.save(eval_gt_path)
+            pred_pos_pil = tensor2gomuboard(policy[0], nrow, ncol, softmax=True, scale=10)
+            concatenated = X[0][0]-X[0][1]
+            ground_true_pil = tensor2gomuboard(2*Y[0]+concatenated, nrow, ncol)
+            eval_result_path = save_base_path / f"evalresults/{epoch}-pred.png"
+            eval_gt_path = save_base_path / f"evalresults/{epoch}-gt.png"
+            pred_pos_pil.save(eval_result_path)
+            ground_true_pil.save(eval_gt_path)
             
     return sum(_loss) / len(_loss), num_correct / num_samples
 
