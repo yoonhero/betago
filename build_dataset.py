@@ -7,7 +7,7 @@ from tqdm import tqdm
 from gomu import GoMuKuBoard
 
 
-file_list = glob.glob("./dataset/raw/gomocup2022results/Freestyle*/*.psq")
+file_list = glob.glob("./dataset/raw/gomocup2022results/Freestyle*/*.psq")[:2]
 output_path = "./dataset/processed"
 Path(output_path).mkdir(exist_ok=True)
 
@@ -26,14 +26,25 @@ for index, file_path in enumerate(tqdm(file_list)):
 
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=5)
 
-    lines = lines[1:-4]
+    lines = lines[1:]
 
     inputs, outputs = [], []
 
     to_viz = index % 1000 == 0
 
+    winner = None
+    BLACK = 1
+    WHITE = -1
+    DRAW = 0
+
     for i, line in enumerate(lines[1:]):
         if line.split(",").__len__() != 3:
+            if board.is_draw():
+                winner = DRAW
+            elif i % 2 == 0:
+                winner = WHITE
+            elif i % 2 == 1:
+                winner = BLACK
             break
 
         x, y = get_pos(line)
@@ -45,24 +56,27 @@ for index, file_path in enumerate(tqdm(file_list)):
 
             # augmentation
             # rotate 4 x flip 3 = 12
-            for k in range(4):
-                input_rot = np.rot90(input, k=k)
-                output_rot = np.rot90(output, k=k)
-
-                inputs.append(input_rot)
-                outputs.append(output_rot)
-
-                inputs.append(np.fliplr(input_rot))
-                outputs.append(np.fliplr(output_rot))
-
-                inputs.append(np.flipud(input_rot))
-                outputs.append(np.flipud(output_rot))
-
+#            for k in range(4):
+#                input_rot = np.rot90(input, k=k)
+#                output_rot = np.rot90(output, k=k)
+#
+            inputs.append(input)
+            outputs.append(output)
+#
+#                inputs.append(np.fliplr(input_rot))
+#                outputs.append(np.fliplr(output_rot))
+#
+#                inputs.append(np.flipud(input_rot))
+#                outputs.append(np.flipud(output_rot))
+#
         if to_viz:
             print(board)
 
         # Update the board        
         board.set(x-1, y-1)
 
+    if to_viz:
+        print(winner)
+    results = np.ones_like(inputs) * winner
     # save dataset
-    np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs)
+    ##np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results)

@@ -27,12 +27,13 @@ class GOMUDataset(Dataset):
         self.base_path = Path("./dataset/processed")
         self.board_state, self.next_pos, self.winner = self._load(max_idx)
         
-        self.total = self.x.shape[0] // 12 - 1
+        self.total = self.board_state.shape[0] // 12 - 1
         # self.total = max_idx
 
     def _load(self, max_idx):
         inputs = []
         outputs = []
+        winner = []
 
         for i in tqdm.tqdm(range(max_idx+1)):
             # inputs, outputs = p.map(self._load_file, list(range(max_idx+1)))
@@ -45,7 +46,7 @@ class GOMUDataset(Dataset):
         outputs = np.concatenate(outputs)
         winner = np.concatenate(winner)
         
-        return inputs, output, winner
+        return inputs, outputs, winner
    
     def _load_file(self, i):
         file_path = self.base_path / f"{i:05d}.npz"
@@ -53,7 +54,7 @@ class GOMUDataset(Dataset):
         
         _inputs = data["inputs"]
         _outputs = data["outputs"]
-        _winners = data["winners"]
+        _winners = data["results"]
         
         return _inputs, _outputs, _winners
 

@@ -243,6 +243,7 @@ class SimpleCNN(nn.Module):
 
         for inp, oup in zip(channels, channels[1:]):
             # => half
+            hidden_dim = inp * 3
             conv = nn.Sequential(
                 nn.Conv2d(inp, hidden_dim, 1, 3, 0, bias=False),
                 nn.BatchNorm2d(hidden_dim),
@@ -257,20 +258,20 @@ class SimpleCNN(nn.Module):
             self.convs.append(conv)
         
         scale = 2**(len(channels) - 1)
-        final_row, final_col = row / scale, col / scale
-        final = final_row * final_col
+        final_row, final_col = self.nrow / scale, self.ncol / scale
+        final = int(final_row * final_col)
         self.ff = nn.Sequential(
             Rearrange("b c w h -> b c (w h)"),
             nn.Linear(final, final*3),
             nn.GELU(),
             nn.Linear(final*3, final),
             nn.GELU(),
-            nn.Linear(final, 1)
+            nn.Linear(final, 1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
-        for conv in convs:
+        for conv in self.convs:
             x = conv(x)
 
         x = self.ff(x)
