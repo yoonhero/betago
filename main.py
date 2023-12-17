@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 import numpy as np
 from argparse import ArgumentParser
 import os
@@ -17,9 +18,8 @@ nrow = 20
 ncol = 20
 n_to_win=5
 
-
 # Load Agent
-cpk_path = "./tmp/history_1702722992049/ckpt/epoch-19.pkl"
+cpk_path = "./tmp/history_1702799961019/ckpt/epoch-6.pkl"
 checkpoint = torch.load(cpk_path)["model"]
 channels = [2, 64, 128, 256, 128, 64, 1]
 model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels)
@@ -52,7 +52,7 @@ if not is_gui:
         
         print("NOT FREE", not_free_space)
 
-        selected_poses = bot(board_state, not_free_space)[0]
+        selected_poses = bot(board_state, not_free_space)
         
         selected_x, selected_y = selected_poses[0]
         if not board.set(selected_x, selected_y):
