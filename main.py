@@ -24,10 +24,11 @@ checkpoint = torch.load(cpk_path)["model"]
 channels = [2, 64, 128, 256, 128, 64, 1]
 model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels)
 model.load_state_dict(checkpoint)
+model.eval()
 model.to(device)
 
-#bot = PytorchAgentHeritage(model=model, device=device, turn=1, n_to_win=n_to_win)
-bot = RandomMover(n_to_win=n_to_win)
+bot = PytorchAgentHeritage(model=model, device=device, n_to_win=n_to_win)
+# bot = RandomMover(n_to_win=n_to_win)
 
 
 if not is_gui:
@@ -48,6 +49,8 @@ if not is_gui:
         not_free_space = board.not_free_space()
         not_free_space = np.expand_dims(not_free_space, axis=0)
         board_state = np.expand_dims(board.board, axis=0)
+        
+        print("NOT FREE", not_free_space)
 
         selected_poses = bot(board_state, not_free_space)[0]
         

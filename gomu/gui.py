@@ -6,6 +6,7 @@ import numpy as np
 
 from .board import GoMuKuBoard
 from .utils import open_record, RECORD_KEY, GAME_INFO_KEY
+from .errors import BotError
 
 class Colors:
     BLACK = 0, 0, 0
@@ -137,9 +138,14 @@ class GomokuGUI:
         not_free_space = self.board.not_free_space()
         not_free_space = np.expand_dims(not_free_space, 0)
         board_state = np.expand_dims(self.board.board, axis=0)
-        col, row = self.bot(board_state, not_free_space)[0][0]
+        next_pos, winning_percentages = self.bot(board_state, not_free_space)
+        col, row = next_pos[0]
+        winning_percentage = winning_percentages[0]
+        print("WINNING: ", winning_percentage.item())
         # col, row = self.bot(None, self.board.free_space_coordination())
-        self.update_board(col, row)
+        if not self.update_board(col, row):
+            print(col, row)
+            raise BotError
 
     def make_move(self, x, y):
         col = x // self.size

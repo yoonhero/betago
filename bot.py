@@ -78,23 +78,26 @@ class PytorchAgentHeritage(Agent):
             #state = self.preprocess_state(state)
             state = torch.from_numpy(state).to(dtype=torch.float32, device=self.device)
         
-        pred, _ = self.model(state)
-        return pred
+        policy, value = self.model(state)
+        return policy, value
     
     def format_pos(self, indices, ncol):
-        return [(idx//ncol, idx%ncol) for idx in indices]
+        return [(idx%ncol, idx//ncol) for idx in indices][0]
     
     def predict_next_pos(self, board_state, not_free_space, top_k):
         # processed_batch_free_spaces = self.process_free_spaces(batch_free_spaces, batch_state.shape)
-        pred = self.model_predict(board_state)
+        policy, value = self.model_predict(board_state)
 
-        not_free_space = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device)
-        not_possible = not_free_space * -float("inf")
-        pred += not_possible
-        pred = pred.view(not_free_space.shape[0], -1).softmax(-1)
-        predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in torch.topk(pred, top_k, -1)[1].tolist()]
-        return predicted_pos
+        not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device)
+        not_possible[not_possible==1] = -float("inf")
+        policy += not_possible
+        policy = policy.view(not_free_space.shape[0], -1).softmax(-1)
+        topk_policy_values, topk_policy_indices = torch.topk(policy, top_k, -1)
+        selected_policy = torch.multinomial(topk_policy_values, num_samples=1)
+        policies = torch.gather(topk_policy_indices, 1, selected_policy)
+        predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in policies.tolist()]
+        return predicted_pos, value
 
-    def forward(self, state, not_free_spaces, top_k=5):
+    def forward(self, state, not_free_spaces, top_k=3):
         return self.predict_next_pos(state, not_free_spaces, top_k=top_k)
     
