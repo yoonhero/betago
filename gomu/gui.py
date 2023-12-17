@@ -2,6 +2,7 @@ import itertools
 import pygame
 import random
 import json
+import numpy as np
 
 from .board import GoMuKuBoard
 from .utils import open_record, RECORD_KEY, GAME_INFO_KEY
@@ -34,8 +35,8 @@ class GomokuGUI:
         pygame.display.set_caption("AlphaGomu")
         self.screen = pygame.display.set_mode((self.w, self.h))
         self.screen.fill(Colors.WHITE)
-        self.player_colors = {-11: Colors.WHITE, 1: Colors.BLACK}
-        self.player_names = {-1: "White", 1: "Black"}
+        self.player_colors = {1: Colors.WHITE, 0: Colors.BLACK}
+        self.player_names = {1: "White", 0: "Black"}
         self.board = GoMuKuBoard(rows, cols, n_to_win)
         
         self.with_human = bot == None
@@ -133,7 +134,11 @@ class GomokuGUI:
         if self.is_human_turn():
             return False
         
-        col, row = self.bot(self.board.board, self.board.free_spaces())
+        not_free_space = self.board.not_free_space()
+        not_free_space = np.expand_dims(not_free_space, 0)
+        board_state = np.expand_dims(self.board.board, axis=0)
+        col, row = self.bot(board_state, not_free_space)[0][0]
+        # col, row = self.bot(None, self.board.free_space_coordination())
         self.update_board(col, row)
 
     def make_move(self, x, y):
@@ -146,7 +151,7 @@ class GomokuGUI:
             return
         
         if self.update_board(col, row):
-            if not self.with_human and not self.board.is_done():
+            if not self.with_human and not self.board.is_gameover():
                 self.ai_turn()  
 
     def initiate_game(self):
@@ -160,6 +165,7 @@ class GomokuGUI:
         if not self.with_human:
             # Random Starting
             self.is_human_first = random.random() > 0.5
+            self.bot.set_turn(int(self.is_human_first))
             if not self.is_human_first:
                 self.ai_turn()
 

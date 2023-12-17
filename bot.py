@@ -24,9 +24,12 @@ def check_all_line(tgt_board, n_to_win):
 
 # Base Agent Structure
 class Agent():
-    def __init__(self, turn, n_to_win):
-        self.turn = turn
+    def __init__(self, n_to_win):
         self.n_to_win = n_to_win
+        self.turn = None
+
+    def set_turn(self, turn):
+        self.turn = turn
 
     def forward(self, state, free_spaces):
         return NotImplemented
@@ -38,18 +41,27 @@ class Agent():
     def validate(self, predicted, free_spaces):
         return filter(predicted, lambda pos: pos not in free_spaces)
 
-# MCTS implementation
+
+
+# Actually just stupid guy
+class RandomMover(Agent):
+    def forward(self, state, free_spaces):
+        return random.choice(free_spaces)
+
+
+
+# Simple Pytorch Agent
 class PytorchAgentHeritage(Agent):
-    def __init__(self, model, **kwargs):
+    def __init__(self, model, device, **kwargs):
         super().__init__(**kwargs)
         self.model = model
+        self.device = device
 
-    def preprocess_state(self, state):
-        torch_state = torch.from_numpy(state)
-        nrow, ncol = torch_state.shape[-2], torch_state.shape[-1]
-        torch_state = torch_state.view(-1, nrow*ncol).unsqueeze(0)
-
-        return torch_state
+   # def preprocess_state(self, state):
+    #    torch_state = torch.from_numpy(state)
+     #   nrow, ncol = torch_state.shape[-2], torch_state.shape[-1]
+      #  torch_state = torch_state.view(-1, 2, nrow, ncol)
+       # return torch_state
 
     def process_free_spaces(self, batch_free_spaces, shape):
         batch, nrow, ncol = shape
@@ -60,99 +72,29 @@ class PytorchAgentHeritage(Agent):
                 tmp[b, idx] = 1
         return tmp
 
+    @torch.no_grad()
     def model_predict(self, state):
         if isinstance(state, np.ndarray):
-            state = self.preprocess_state(state)
+            #state = self.preprocess_state(state)
+            state = torch.from_numpy(state).to(dtype=torch.float32, device=self.device)
+        
         pred, _ = self.model(state)
         return pred
     
     def format_pos(self, indices, ncol):
         return [(idx//ncol, idx%ncol) for idx in indices]
     
-    def predict_next_pos(self, batch_state, batch_free_spaces, top_k):
-        processed_batch_free_spaces = self.process_free_spaces(batch_free_spaces, batch_state.shape)
-        pred = self.model_predict(batch_state)
+    def predict_next_pos(self, board_state, not_free_space, top_k):
+        # processed_batch_free_spaces = self.process_free_spaces(batch_free_spaces, batch_state.shape)
+        pred = self.model_predict(board_state)
 
-        not_possible = processed_batch_free_spaces * -float("inf")
+        not_free_space = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device)
+        not_possible = not_free_space * -float("inf")
         pred += not_possible
-        
-        predicted_pos = [self.format_pos(batch, ncol=batch_state.shape[-1]) for batch in torch.topk(pred, top_k, -1)["indices"].tolist()]
+        pred = pred.view(not_free_space.shape[0], -1).softmax(-1)
+        predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in torch.topk(pred, top_k, -1)[1].tolist()]
         return predicted_pos
+
+    def forward(self, state, not_free_spaces, top_k=5):
+        return self.predict_next_pos(state, not_free_spaces, top_k=top_k)
     
-    def for_singlebatch(self, state, free_spaces, top_k):
-        batch_state = np.expand_dims(state, 0)
-        batch_free_spaces = np.expand_dims(free_spaces, 0)
-        return self.predict_next_pos(batch_state=batch_state, batch_free_spaces=batch_free_spaces)[0]
-
-    @classmethod
-    def from_trained(cls, cpk_path, model: nn.Module, **kwargs):
-        checkpoint = torch.load(cpk_path)["model"]
-        model = model(20, 20, [2, 64, 128, 256, 128, 64, 1]).load_state_dict(state_dict=checkpoint)
-        return cls(model=model, **kwargs)
-
-
-# Actually just stupid guy
-class RandomMover(Agent):
-    def forward(self, state, free_spaces):
-        return random.choice(free_spaces)
-
-# Not very intelligent but wise player for proper competitors for agent
-class Nerd(Agent):
-    def __init__(self, turn, n_to_win):
-        super().__init__(turn, n_to_win)
-        dangerous_zones = []
-
-    def checkWinningStrategy(self, state):
-        zones = []
-
-        # 0 0 0 
-        # 0 1 0
-        # -1 0 1
-        me = state == self.turn
-        not_me = state != self.turn
-        
-        # Diagonal
-        cross, reverse_cross = check_all_cross(state, self.n_to_win)
-
-        # line
-        line, lineT = check_all_line(state, self.n_to_win)
-
-        return zones
-
-    def checkDangerous(self, state):
-        zones = []
-        return zones
-
-    def forward(self, state, free_spaces):
-        winning_zones = self.checkWinningStrategy(state)
-        losing_zones = self.checkDangerous(state)
-
-        if len(winning_zones) == 0 and len(losing_zones) == 0:
-            return random.choice(free_spaces)
-
-        return random.choice(winning_zones+losing_zones)
-    
-
-class StatisticalSimlaritySearchingIntelligentGuy(Agent):
-    def __init__(self, turn, n_to_win, dataset_path):
-        super().__init__(turn, n_to_win)
-        self.dataset = self.load_dataset(dataset_path=dataset_path)
-
-    def load_dataset(self, dataset_path):
-        return 
-
-    def search_similar(self):
-        return
-
-    def forward(self, state, free_spaces):
-        next_poses = self.search_similar(state)
-        possible_poses = self.validate(next_poses, free_spaces)
-
-        return
-    
-
-
-# class ItMayBeSupervisedLearningIsBetterThanReinforcementLearningButIdontThinksothisguy(Agent):
-#     def __init__(self, turn, n_to_win, )
-
-#     @classmethod

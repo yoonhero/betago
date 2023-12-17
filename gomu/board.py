@@ -22,8 +22,15 @@ class GoMuKuBoard():
     def reset(self):
         return self.__init__(nrow=self.nrow, ncol=self.ncol, n_to_win=self.n_to_win)
     
-    def free_spaces(self, turn):
-        return np.argwhere(self.board[turn].T==0).tolist()
+    # Getting Free space list of x, y coordination
+    def free_space_coordination(self) -> list[list[int]]:
+        not_free_space = self.board.sum(0)
+        free_space_coordination = np.argwhere(not_free_space.T==0).tolist()
+        return free_space_coordination
+    
+    def not_free_space(self):
+        not_free_space = self.board.sum(0)
+        return not_free_space
 
     def whose_turn(self, ply):
         # turn = self.O if ply % 2 == 0 else self.X 
