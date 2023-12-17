@@ -4,7 +4,7 @@ from scipy.signal import convolve2d
 class GoMuKuBoard():
     def __init__(self, nrow, ncol, n_to_win, blank="."):
         # Black -> White
-        self.board = np.zeros((2, nrow, ncol))
+        self._board = np.zeros((2, nrow, ncol))
         self.nrow = nrow
         self.ncol = ncol
         # The number of stone in the board
@@ -19,17 +19,21 @@ class GoMuKuBoard():
         self.BLANK = " "
         self.s2m = {-1: self.BLACK, 1: self.WHITE, 0: self.BLANK}
 
+    @property
+    def board(self):
+        return self._board
+
     def reset(self):
         return self.__init__(nrow=self.nrow, ncol=self.ncol, n_to_win=self.n_to_win)
     
     # Getting Free space list of x, y coordination
     def free_space_coordination(self) -> list[list[int]]:
-        not_free_space = self.board.sum(0)
+        not_free_space = self._board.sum(0)
         free_space_coordination = np.argwhere(not_free_space.T==0).tolist()
         return free_space_coordination
     
     def not_free_space(self):
-        not_free_space = self.board.sum(0)
+        not_free_space = self._board.sum(0)
         return not_free_space
 
     def whose_turn(self, ply):
@@ -40,16 +44,16 @@ class GoMuKuBoard():
         return self.nrow < x and self.ncol < y and x >= 0 and y >= 0
 
     def is_empty(self, x, y):
-        return not (self.board[:,y,x] != 0).any()
+        return not (self._board[:,y,x] != 0).any()
 
     def total_empty(self):
-        return self.board.count(0)
+        return self._board.count(0)
 
     # pos = (x, y) coordinate
     def set(self, x, y):
         if not self.in_bounds(x, y) and self.is_empty(x, y):
             turn = self.whose_turn(self.ply)
-            self.board[turn][y][x] = self.STONE
+            self._board[turn][y][x] = self.STONE
             self.last_player = turn
             self.ply += 1
             self.last_move = (x, y)
@@ -80,7 +84,7 @@ class GoMuKuBoard():
 
     def is_gameover(self):
         turn = self.whose_turn(self.ply-1)
-        tgt_board = self.board[turn]
+        tgt_board = self._board[turn]
         return self.check_all_wh(tgt_board) or self.check_all_diagonal(tgt_board)
         
     def is_draw(self):
@@ -88,7 +92,7 @@ class GoMuKuBoard():
 
     # formatting the numpy array into human level.
     def forviz(self):
-        data = self.board
+        data = self._board
         formatted_data = []
 
         tmp = np.zeros((self.nrow, self.ncol))

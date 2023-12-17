@@ -51,7 +51,7 @@ class RandomMover(Agent):
 
 
 # Simple Pytorch Agent
-class PytorchAgentHeritage(Agent):
+class PytorchAgent(Agent):
     def __init__(self, model, device, **kwargs):
         super().__init__(**kwargs)
         self.model = model
@@ -100,4 +100,12 @@ class PytorchAgentHeritage(Agent):
 
     def forward(self, state, not_free_spaces, top_k=3):
         return self.predict_next_pos(state, not_free_spaces, top_k=top_k)
+
+
+class Minimax(PytorchAgent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     
+    
+

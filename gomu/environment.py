@@ -6,6 +6,7 @@ import threading
 import queue
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import random
 from copy import deepcopy
 
 from .board import GoMuKuBoard

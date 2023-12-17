@@ -27,7 +27,7 @@ model.load_state_dict(checkpoint)
 model.eval()
 model.to(device)
 
-bot = PytorchAgentHeritage(model=model, device=device, n_to_win=n_to_win)
+bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
 # bot = RandomMover(n_to_win=n_to_win)
 
 
