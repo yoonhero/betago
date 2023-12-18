@@ -7,4 +7,4 @@ class DEBUGSign():
     def __ge__(self, x): return self.value <= x
     def __eq__(self, x): return self.value == x 
 
-DEBUG = DEBUGSign()
+DEBUG = int(os.getenv("DEBUG"))

@@ -12,20 +12,25 @@ from einops import rearrange
 from .helpers import DEBUG
 from .game_tree import Node
 
-def convolution_calc(x, kernel1, kernel2):
-    return (convolve2d(x, kernel1, mode='valid'), convolve2d(x, kernel2, mode='valid'))
+def check_with_conv2d(tgt_board, n_to_win, *kernels):
+    for kernel in kernels:
+        conv_calc_result = convolve2d(tgt_board, kernel, mode='valid')
+        is_done = (conv_calc_result==n_to_win).any()
+        if is_done:
+            return True
+    return False
 
 def check_all_cross(tgt_board, n_to_win):
     kernel1 = np.eye(n_to_win)
     kernel2 = np.eye(n_to_win)[::-1]
 
-    return convolution_calc(tgt_board, kernel1, kernel2)
+    return check_with_conv2d(tgt_board, n_to_win, kernel1, kernel2)
 
 def check_all_line(tgt_board, n_to_win):
     kernel1 = np.ones((1,n_to_win))
     kernel2 = np.ones((n_to_win, 1))
 
-    return convolution_calc(tgt_board, kernel1, kernel2)
+    return check_with_conv2d(tgt_board, n_to_win, kernel1, kernel2)
 
 # Base Agent Structure
 class Agent():
@@ -119,12 +124,20 @@ class MinimaxWithAB(PytorchAgent):
         return int(board_state[0].sum() == board_state[1].sum())
 
     # Search 3 highest value vertex until reaching the maximum depth 
-    def minimax_search(self, node: Node, my_turn, strategy, board_state, depth, alpha, beta):
+    def minimax_search(self, node: Node, my_turn, strategy, board_state, depth, alpha, beta, root=False):
         if depth == 0:
             _, value = self.model_predict(state=board_state)
 
+            is_game_done = check_all_cross(board_state[my_turn], self.n_to_win) or check_all_line(board_state[my_turn], self.n_to_win)
+
             if strategy == MinimaxWithAB.MAX:
                 value = 1 - value
+
+            if is_game_done:
+                if strategy == MinimaxWithAB.MAX:
+                    value += -float("inf")
+                elif strategy == MinimaxWithAB.MIN:
+                    value += float("inf")
 
             node = node.add_node(Node("Bottom", value.item()))
 
@@ -140,7 +153,8 @@ class MinimaxWithAB(PytorchAgent):
             cur_node = Node(f"{next_pos}({depth}/{i})")
             col, row = next_pos
             new_board_state = board_state.copy()
-            print(f"--- DEPTH {depth}  ---")
+            
+            if DEBUG >= 2: print(f"--- DEPTH {depth}  ---")
             new_board_state[my_turn, row, col] = 1
 
             strategy = MinimaxWithAB.MIN if strategy == MinimaxWithAB.MAX else MinimaxWithAB.MAX
@@ -162,16 +176,16 @@ class MinimaxWithAB(PytorchAgent):
                 if value >= beta:
                     break
 
-        # if depth == 3:
-            # graph = node.viz(depth=depth)
-            # graph.view()
+        if root and DEBUG >= 4:
+            graph = node.viz(depth=depth)
+            graph.view()
 
         return value, origin
 
-    def forward(self, board_state, turn, max_depth=3):
+    def forward(self, board_state, turn, max_depth=5):
         node = Node("Root")
         # Agent wants to maximize the value he might receive.
-        value, next_pos = self.minimax_search(node=node, my_turn=turn, strategy=MinimaxWithAB.MAX, board_state=board_state, depth=max_depth, alpha=-float("inf"), beta=float("inf"))
+        value, next_pos = self.minimax_search(node=node, my_turn=turn, strategy=MinimaxWithAB.MAX, board_state=board_state, depth=max_depth, alpha=-float("inf"), beta=float("inf"), root=True)
         
         if DEBUG >= 2: print(f"BEST Searching Result --- {value}")
 

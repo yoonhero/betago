@@ -30,9 +30,9 @@ model.load_state_dict(checkpoint)
 model.eval()
 model.to(device)
 
-bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
+# bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
 # bot = RandomMover(n_to_win=n_to_win)
-# bot = MinimaxWithAB(model=model, device=device, n_to_win=n_to_win, max_search_node=3)
+bot = MinimaxWithAB(model=model, device=device, n_to_win=n_to_win, max_search_node=4)
 
 
 if not is_gui:
