@@ -4,9 +4,17 @@ import random
 import json
 import numpy as np
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.backends.backend_agg as agg
+import seaborn as sns
+import pylab
+
 from .board import GoMuKuBoard
 from .utils import open_record, RECORD_KEY, GAME_INFO_KEY
-from .errors import BotError
+from .errors import BotError, PosError
+
+from ..helpers import DEBUG
 
 class Colors:
     BLACK = 0, 0, 0
@@ -18,7 +26,6 @@ class GomokuGUI:
     def __init__(
         self,
         size=60,
-        piece_size=20,
         rows=15,
         cols=15,
         n_to_win=5,
@@ -29,16 +36,19 @@ class GomokuGUI:
         self.cols = cols
         self.w = rows * size
         self.h = cols * size
+        self.plot_h = self.h/4
         self.size = size
-        self.piece_size = piece_size
+        self.piece_size = size / 2
         self.half_size = size // 2
         pygame.init()
         pygame.display.set_caption("AlphaGomu")
-        self.screen = pygame.display.set_mode((self.w, self.h))
+        self.screen = pygame.display.set_mode((self.w, self.h+self.plot_h))
         self.screen.fill(Colors.WHITE)
         self.player_colors = {1: Colors.WHITE, 0: Colors.BLACK}
         self.player_names = {1: "White", 0: "Black"}
         self.board = GoMuKuBoard(rows, cols, n_to_win)
+
+        self.values_for_plotting = []
         
         self.with_human = bot == None
         self.bot = bot
@@ -126,6 +136,7 @@ class GomokuGUI:
     def update_board(self, col, row):
         if self.board.set(col, row):
             self.draw_piece(col=col, row=row)
+            self.update_plot()
             pygame.display.update()
             return True
         return False
@@ -135,18 +146,16 @@ class GomokuGUI:
         if self.is_human_turn():
             return False
         
-        # not_free_space = self.board.not_free_space()
-        # not_free_space = np.expand_dims(not_free_space, 0)
-        # board_state = np.expand_dims(self.board.board, axis=0)
         board_state = self.board.board
-        next_pos, winning_percentages = self.bot(board_state, turn=int(self.is_human_first))
-        col, row = next_pos[0]
-        winning_percentage = winning_percentages
-        print("WINNING: ", winning_percentage)
-        # col, row = self.bot(None, self.board.free_space_coordination())
+        next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first))
+        col, row = next_pos[0]  
+        self.values_for_plotting.append(1-winning_percentage.item())
+
+        if DEBUG >= 2:
+            print(f"Your WINNING Percentage: {1-winning_percentage.item()}")
+
         if not self.update_board(col, row):
-            print(col, row)
-            raise BotError
+            raise Exception([BotError, PosError(col, row)])
 
     def make_move(self, x, y):
         col = x // self.size
@@ -188,6 +197,33 @@ class GomokuGUI:
         self.show_outcome()
         pygame.display.update()
         self.exit_on_click()
+
+    def update_plot(self):
+        screen = pygame.display.get_surface()
+        surf = self.drawing_plot()
+        screen.blit(surf, (0, self.h))
+
+    def drawing_plot(self):
+        w, h = self.w/96, self.plot_h/96
+        fig = pylab.figure(figsize=[w,h],
+                   dpi=100,
+                   )
+        ax = fig.gca()
+        ax.plot(self.values_for_plotting)
+        ax.set_ylim(0, 1)
+
+        canvas = agg.FigureCanvasAgg(fig)
+        canvas.draw()
+        renderer = canvas.get_renderer()
+        raw_data = renderer.tostring_rgb()
+
+        size = canvas.get_width_height()
+        w, _ = size
+
+        surf = pygame.image.fromstring(raw_data, size, "RGB")
+
+        # align_pos = (self.half_size-w//2, self.h)
+        return surf
 
     @classmethod
     def lets_viz(cls, record_paths):

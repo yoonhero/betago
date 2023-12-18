@@ -4,7 +4,7 @@ from pathlib import Path
 import glob
 from tqdm import tqdm
 
-from gomu import GoMuKuBoard
+from gomuku import GoMuKuBoard
 
 
 file_list = glob.glob("./dataset/raw/gomocup2022results/Freestyle*/*.psq")

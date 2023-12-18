@@ -2,12 +2,13 @@
 import numpy as np
 from argparse import ArgumentParser
 import os
+import torch
 
-from gomu import GoMuKuBoard
-from gomu.gui import GomokuGUI
-from bot import *
+from gomu.gomuku import GoMuKuBoard
+from gomu.gomuku.gui import GomokuGUI
+from gomu.bot import *
 
-from base import PocliyValueNet
+from gomu.base import PocliyValueNet
 
 is_gui = os.getenv("GUI")
 # is_gui = True
@@ -64,5 +65,5 @@ if not is_gui:
         print("Bot Thinking was completed.")
         print(board)
 else:
-    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=45)
+    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=30)
     game.play()

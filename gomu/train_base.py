@@ -17,8 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-from base import PocliyValueNet, Unet, Transformer, get_total_parameters
-from viz import tensor2gomuboard
+from .base import PocliyValueNet, Unet, Transformer, get_total_parameters
+from .viz import tensor2gomuboard
 
 class GOMUDataset(Dataset):
     def __init__(self, max_idx, device):

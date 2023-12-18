@@ -1,8 +1,6 @@
 import numpy as np
 
-from gomu import RLEnv
-from gomu import Nerd
-
+from bot import *
 
 turns = {"w": 1, "b": -1}
 
