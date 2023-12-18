@@ -21,7 +21,7 @@ class GoMuKuBoard():
 
     @property
     def board(self):
-        return self._board
+        return self._board.copy()
 
     def reset(self):
         return self.__init__(nrow=self.nrow, ncol=self.ncol, n_to_win=self.n_to_win)
@@ -44,7 +44,8 @@ class GoMuKuBoard():
         return self.nrow < x and self.ncol < y and x >= 0 and y >= 0
 
     def is_empty(self, x, y):
-        return not (self._board[:,y,x] != 0).any()
+        # return not (self._board.sum(0)[y][x] != 0).any()
+        return self._board.sum(0)[y][x] == 0
 
     def total_empty(self):
         return self._board.count(0)

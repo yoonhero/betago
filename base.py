@@ -292,6 +292,7 @@ class PocliyValueNet(nn.Module):
         )
         self.ff = nn.Sequential(
             Rearrange("b c w h -> b (c w h)"),
+            # nn.Linear(final, final),
             nn.Linear(final, final*3),
             nn.ReLU(),
             nn.Linear(final*3, final), 

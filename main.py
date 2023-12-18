@@ -9,18 +9,20 @@ from bot import *
 
 from base import PocliyValueNet
 
-#is_gui = os.getenv("GUI")
-is_gui = True
+is_gui = os.getenv("GUI")
+# is_gui = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Gomu Board
 nrow = 20
 ncol = 20
-n_to_win=5
+n_to_win = 5
 
 # Load Agent
-cpk_path = "./tmp/history_1702799961019/ckpt/epoch-6.pkl"
-checkpoint = torch.load(cpk_path)["model"]
+cpk_path = "./models/1217-256.pkl"
+if device == "cpu":
+    checkpoint = torch.load(cpk_path, map_location=torch.device("cpu"))["model"]
+else: checkpoint = torch.load(cpk_path)["model"]
 channels = [2, 64, 128, 256, 128, 64, 1]
 model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels)
 model.load_state_dict(checkpoint)
@@ -29,6 +31,7 @@ model.to(device)
 
 bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
 # bot = RandomMover(n_to_win=n_to_win)
+# bot = MinimaxWithAB(model=model, device=device, n_to_win=n_to_win, max_search_node=3)
 
 
 if not is_gui:
@@ -46,20 +49,20 @@ if not is_gui:
         print("Bot Thinking...")
 
         # freeee = np.argwhere(board.board==0).tolist()
-        not_free_space = board.not_free_space()
-        not_free_space = np.expand_dims(not_free_space, axis=0)
-        board_state = np.expand_dims(board.board, axis=0)
+        # not_free_space = board.not_free_space()
+        # not_free_space = np.expand_dims(not_free_space, axis=0)
+        # board_state = np.expand_dims(board.board, axis=0)
         
-        print("NOT FREE", not_free_space)
-
-        selected_poses = bot(board_state, not_free_space)
+        # print("NOT FREE", not_free_space)
+        board_state = board.board
+        selected_poses = bot(board_state)
         
-        selected_x, selected_y = selected_poses[0]
-        if not board.set(selected_x, selected_y):
+        col, row = selected_poses[0]
+        if not board.set(col, row):
             print("Bot Error!!!")
             break
         print("Bot Thinking was completed.")
         print(board)
 else:
-    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot)
+    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=45)
     game.play()

@@ -135,13 +135,14 @@ class GomokuGUI:
         if self.is_human_turn():
             return False
         
-        not_free_space = self.board.not_free_space()
-        not_free_space = np.expand_dims(not_free_space, 0)
-        board_state = np.expand_dims(self.board.board, axis=0)
-        next_pos, winning_percentages = self.bot(board_state, not_free_space)
+        # not_free_space = self.board.not_free_space()
+        # not_free_space = np.expand_dims(not_free_space, 0)
+        # board_state = np.expand_dims(self.board.board, axis=0)
+        board_state = self.board.board
+        next_pos, winning_percentages = self.bot(board_state, turn=int(self.is_human_first))
         col, row = next_pos[0]
-        winning_percentage = winning_percentages[0]
-        print("WINNING: ", winning_percentage.item())
+        winning_percentage = winning_percentages
+        print("WINNING: ", winning_percentage)
         # col, row = self.bot(None, self.board.free_space_coordination())
         if not self.update_board(col, row):
             print(col, row)
