@@ -17,7 +17,7 @@ I use ResNet based U-Net architecture for predicting policy distribution and val
 
 - [x] QNet pretraining
 - [ ] Reinforcement Learning GYM
-- [ ] Minimax (alpha-beta)
+- [x] Minimax (alpha-beta)
 - [ ] MCTS
 - [ ] Dijkstra
 - [ ] A*

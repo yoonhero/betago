@@ -2,15 +2,16 @@ from typing import Any
 import numpy as np
 import random
 from scipy.signal import convolve2d
-import graphviz
-import uuid
+import tqdm
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
 from einops import rearrange
 
 from .helpers import DEBUG
-from .game_tree import Node
+from .game_tree import Node, Graph
+from .gomuku.errors import PosError
 
 def check_with_conv2d(tgt_board, n_to_win, *kernels):
     for kernel in kernels:
@@ -41,24 +42,59 @@ class Agent():
     def set_turn(self, turn):
         self.turn = turn
 
-    def forward(self, state, free_spaces):
+    def forward(self, board_state, **kwargs):
         return NotImplemented
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return self.forward(*args, **kwds)
+    def __call__(self, board_state, **kwds: Any) -> Any:
+        next_pos, value = self.forward(board_state, **kwds)
+        if self.validate(board_state=board_state, next_pos=next_pos):
+            return next_pos, value
 
     # Validate the predicted zone was possible or not.
-    def validate(self, predicted, free_spaces):
-        return filter(predicted, lambda pos: pos not in free_spaces)
+    def validate(self, board_state, next_pos):
+        _, n_col, n_row = board_state.shape
+        col, row = next_pos
 
+        # Bounding Check
+        if n_col <= col or n_row <= row:
+            raise PosError(col, row)
 
+        # Check Is Empty Space
+        if (board_state[:, col, row]==1).any():
+            raise PosError(col, row)
+
+        return True
+
+    # Give a heuristic value to prevent ugly movement.
+    def heuristic(self, board_state, my_turn):
+        heristic_value = 0
+
+        is_game_done = check_all_cross(board_state[my_turn], self.n_to_win) or check_all_line(board_state[my_turn], self.n_to_win)
+
+        if is_game_done:
+            heristic_value = float("inf")
+        
+        return heristic_value
+
+    def get_not_free_space(self, board_state):
+        not_free_space = board_state.sum(0)
+        return not_free_space
+    
+    def format_pos(self, indices, ncol):
+        return [(idx%ncol, idx//ncol) for idx in indices]
 
 # Actually just stupid guy
 class RandomMover(Agent):
-    def forward(self, state, free_spaces):
-        return random.choice(free_spaces)
-
-
+    def forward(self, board_state, **kwargs):
+        not_free_space = self.get_not_free_space(board_state=board_state)
+        not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32)
+        policy = torch.ones_like(not_possible)
+        not_possible[not_possible!=0] = -float("inf")
+        policy += not_possible
+        policy = policy.view(-1).softmax(0)
+        next_pos_indices = torch.multinomial(policy, num_samples=1).tolist()
+        next_pos = self.format_pos(next_pos_indices, not_possible.shape[-1])
+        return next_pos, 0
 
 # Simple Pytorch Agent
 class PytorchAgent(Agent):
@@ -71,10 +107,10 @@ class PytorchAgent(Agent):
     def preprocess_state(self, state):
         torch_state = torch.from_numpy(state).to(dtype=torch.float32, device=self.device)
 
-        total_BLACK = state[0].sum()
-        total_WHITE = state[1].sum()
+        total_BLACK = torch_state[0].sum()
+        total_WHITE = torch_state[1].sum()
         if total_BLACK != total_WHITE:
-            state[0], state[1] = state[1], state[0]
+            torch_state[0], torch_state[1] = torch_state[1], torch_state[0]
 
         return torch_state
 
@@ -85,12 +121,12 @@ class PytorchAgent(Agent):
         policy, value = self.model(state)
         return policy, value
     
-    def format_pos(self, indices, ncol):
-        return [(idx%ncol, idx//ncol) for idx in indices]
-
-    def get_not_free_space(self, board_state):
-        not_free_space = board_state.sum(0)
-        return not_free_space
+    def get_new_board_state(self, board_state, next_pos, my_turn):
+        if self.validate(board_state, next_pos=next_pos):
+            col, row = next_pos
+            new_board_state = board_state.copy()
+            new_board_state[my_turn, col, row] = 1
+            return new_board_state
     
     def predict_next_pos(self, board_state, top_k):
         assert top_k >= 3, "Please top_k is greater than 3."
@@ -100,93 +136,107 @@ class PytorchAgent(Agent):
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
         not_possible[not_possible!=0] = -float("inf")
         policy += not_possible
-        policy = policy.view(not_possible.shape[0], -1).softmax(-1)
+        B = not_possible.shape[0]
+        policy = policy.view(B, -1).softmax(-1)
+        indices = torch.arange(policy.shape[-1]).repeat(B, 1)
         # topk_policy_values, topk_policy_indices = torch.topk(policy, 10, -1)
-        # selected_policy = torch.multinomial(topk_policy_values, num_samples=top_k)
-        # policies = torch.gather(topk_policy_indices, 1, selected_policy)
-        _, policies = torch.topk(policy, top_k, -1)
+        selected_policy = torch.multinomial(policy, num_samples=top_k)
+        policies = torch.gather(indices, 1, selected_policy)
+        # _, policies = torch.topk(policy, top_k, -1)
         predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in policies.tolist()]
         return predicted_pos[0], value.squeeze(0)
 
-    def forward(self, state, top_k=3, **kwargs):
-        return self.predict_next_pos(state, top_k=top_k)
+    def forward(self, board_state, top_k=3, **kwargs):
+        return self.predict_next_pos(board_state, top_k=top_k)
 
 
 class MinimaxWithAB(PytorchAgent):
     MIN = "min"
     MAX = "max"
 
-    def __init__(self, max_search_node, **kwargs):
+    def __init__(self, max_search_vertex, max_depth, **kwargs):
         super().__init__(**kwargs)
-        self.max_search_node = max_search_node
+        self.max_search_vertex = max_search_vertex
+        self.max_depth = max_depth
 
     def whose_turn(self, board_state):
         return int(board_state[0].sum() == board_state[1].sum())
 
-    # Search 3 highest value vertex until reaching the maximum depth 
-    def minimax_search(self, node: Node, my_turn, strategy, board_state, depth, alpha, beta, root=False):
+    # Search n highest value vertex with alpha-beta prunning until reaching the maximum depth. 
+    def minimax_search(self, parent_node: Node, game_tree: Graph, my_turn, strategy, board_state, depth, alpha, beta, root=False):
+        heuristic_value = self.heuristic(board_state=board_state, my_turn=my_turn)
+        if strategy == MinimaxWithAB.MAX: heuristic_value *= -1
+        if heuristic_value != 0: return heuristic_value, None
+
         if depth == 0:
-            _, value = self.model_predict(state=board_state)
+            _, tensor_value = self.model_predict(state=board_state)
+            value = tensor_value.item()
 
-            is_game_done = check_all_cross(board_state[my_turn], self.n_to_win) or check_all_line(board_state[my_turn], self.n_to_win)
-
+            # Depending on the role, redefine the value for minimax searching.
+            # Maximum Player is BOT. They want to maximize their winning probability.
+            # Doing so, on the last depth, Stragety==Max => 
             if strategy == MinimaxWithAB.MAX:
                 value = 1 - value
 
-            if is_game_done:
-                if strategy == MinimaxWithAB.MAX:
-                    value += -float("inf")
-                elif strategy == MinimaxWithAB.MIN:
-                    value += float("inf")
+            parent_node.set(value)
 
-            node = node.add_node(Node("Bottom", value.item()))
-
-            return value, _
+            return value, None
 
         next_turn = 1 - my_turn
-        selected_poses, _ = self.predict_next_pos(board_state=board_state, top_k=self.max_search_node)
+        selected_poses, _ = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex)
 
         cur_value = float("inf") if strategy == MinimaxWithAB.MIN else -float("inf")
         origin = None
+        new_strategy = MinimaxWithAB.MIN if strategy == MinimaxWithAB.MAX else MinimaxWithAB.MAX
 
-        for i, next_pos in enumerate(selected_poses):
-            cur_node = Node(f"{next_pos}({depth}/{i})")
-            col, row = next_pos
-            new_board_state = board_state.copy()
+        loader = tqdm.tqdm(selected_poses) if root else selected_poses
+
+        for next_pos in loader:
+            cur_node = Node(f"{next_pos}")
+            try:
+                new_board_state = self.get_new_board_state(board_state, next_pos, my_turn)
+            except PosError:
+                if DEBUG >= 3:
+                    print(f"There was error during getting the new board state. --- Pos {next_pos}")
+                continue
             
-            if DEBUG >= 2: print(f"--- DEPTH {depth}  ---")
-            new_board_state[my_turn, row, col] = 1
+            value, _ = self.minimax_search(parent_node=cur_node, game_tree=game_tree, my_turn=next_turn, strategy=new_strategy, board_state=new_board_state, depth=depth-1, alpha=alpha, beta=beta)
+            if DEBUG >= 3:
+                print(f"--- DEPTH {depth}  ---")
+                print(f"Action Value: {value} | Strategy: {strategy}")
 
-            strategy = MinimaxWithAB.MIN if strategy == MinimaxWithAB.MAX else MinimaxWithAB.MAX
-            value, origin = self.minimax_search(node=cur_node, my_turn=next_turn, strategy=strategy, board_state=new_board_state, depth=depth-1, alpha=alpha, beta=beta)
-
-            cur_node.set(value.item())
-            node.add_node(cur_node)
+            # Making a connection in Game Tree 
+            cur_node.set(value)
+            game_tree.addEdge(parent_node, cur_node)
 
             if strategy == MinimaxWithAB.MIN:
                 cur_value = min(cur_value, value)
-                origin = next_pos
+                if cur_value == value:
+                    origin = next_pos
                 beta = min(beta, cur_value)
                 if value <= alpha:
                     break
             elif strategy == MinimaxWithAB.MAX:
                 cur_value = max(cur_value, value)
-                origin = next_pos
+                if cur_value == value:
+                    origin = next_pos
                 alpha = max(alpha, cur_value)
                 if value >= beta:
                     break
 
-        if root and DEBUG >= 4:
-            graph = node.viz(depth=depth)
-            graph.view()
+        parent_node.set(cur_value)
+        if root and DEBUG >= 2:
+            digraph = game_tree.viz(parent_node)
+            digraph.view()
 
-        return value, origin
+        return cur_value, origin
 
-    def forward(self, board_state, turn, max_depth=5):
+    def forward(self, board_state, turn):
         node = Node("Root")
+        game_tree = Graph()
         # Agent wants to maximize the value he might receive.
-        value, next_pos = self.minimax_search(node=node, my_turn=turn, strategy=MinimaxWithAB.MAX, board_state=board_state, depth=max_depth, alpha=-float("inf"), beta=float("inf"), root=True)
+        value, next_pos = self.minimax_search(game_tree=game_tree, parent_node=node, my_turn=turn, strategy=MinimaxWithAB.MAX, board_state=board_state, depth=self.max_depth, alpha=-float("inf"), beta=float("inf"), root=True)
         
-        if DEBUG >= 2: print(f"BEST Searching Result --- {value}")
+        if DEBUG >= 1: print(f"BEST Searching Result --- {value}")
 
-        return [next_pos], value
+        return next_pos, value

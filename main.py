@@ -1,6 +1,5 @@
 #! /usr/bin/env python
 import numpy as np
-from argparse import ArgumentParser
 import os
 import torch
 
@@ -13,6 +12,9 @@ from gomu.base import PocliyValueNet
 is_gui = os.getenv("GUI")
 # is_gui = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
+bot_type = os.getenv("BOT", "random")
+max_vertex = int(os.getenv("MAX_VERTEX", 3))
+max_depth = int(os.getenv("MAX_DEPTH", 3))
 
 # Gomu Board
 nrow = 20
@@ -30,10 +32,12 @@ model.load_state_dict(checkpoint)
 model.eval()
 model.to(device)
 
-# bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
-# bot = RandomMover(n_to_win=n_to_win)
-bot = MinimaxWithAB(model=model, device=device, n_to_win=n_to_win, max_search_node=4)
-
+if "random" in bot_type:
+    bot = RandomMover(n_to_win=n_to_win)
+if "torch" in bot_type:
+    bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
+if "minimax" in bot_type:
+    bot = MinimaxWithAB(model=model, device=device, n_to_win=n_to_win, max_search_vertex=max_vertex, max_depth=max_depth)
 
 if not is_gui:
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
@@ -58,12 +62,12 @@ if not is_gui:
         board_state = board.board
         selected_poses = bot(board_state)
         
-        col, row = selected_poses[0]
+        col, row = selected_poses
         if not board.set(col, row):
             print("Bot Error!!!")
             break
         print("Bot Thinking was completed.")
         print(board)
 else:
-    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=30)
+    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=35)
     game.play()

@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.signal import convolve2d
 
+from ..helpers import DEBUG
+
 class GoMuKuBoard():
     def __init__(self, nrow, ncol, n_to_win, blank="."):
         # Black -> White
@@ -58,6 +60,11 @@ class GoMuKuBoard():
             self.last_player = turn
             self.ply += 1
             self.last_move = (x, y)
+            
+            if DEBUG >= 2:
+                print(f"Player {turn} plays {self.last_move}!")
+            if DEBUG >= 3:
+                print(self._board)
         
             return True
             

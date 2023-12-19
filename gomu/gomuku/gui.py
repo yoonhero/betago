@@ -42,7 +42,8 @@ class GomokuGUI:
         self.half_size = size // 2
         pygame.init()
         pygame.display.set_caption("AlphaGomu")
-        self.screen = pygame.display.set_mode((self.w, self.h+self.plot_h))
+        height = self.h + self.plot_h if DEBUG >= 3 else self.h
+        self.screen = pygame.display.set_mode((self.w, height))
         self.screen.fill(Colors.WHITE)
         self.player_colors = {1: Colors.WHITE, 0: Colors.BLACK}
         self.player_names = {1: "White", 0: "Black"}
@@ -136,7 +137,7 @@ class GomokuGUI:
     def update_board(self, col, row):
         if self.board.set(col, row):
             self.draw_piece(col=col, row=row)
-            self.update_plot()
+            if DEBUG >= 3: self.update_plot()
             pygame.display.update()
             return True
         return False
@@ -148,11 +149,11 @@ class GomokuGUI:
         
         board_state = self.board.board
         next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first))
-        col, row = next_pos[0]  
-        self.values_for_plotting.append(1-winning_percentage.item())
+        col, row = next_pos
+        self.values_for_plotting.append(1-winning_percentage)
 
         if DEBUG >= 2:
-            print(f"Your WINNING Percentage: {1-winning_percentage.item()}")
+            print(f"Your WINNING Percentage: {1-winning_percentage}")
 
         if not self.update_board(col, row):
             raise Exception([BotError, PosError(col, row)])

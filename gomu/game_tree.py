@@ -1,50 +1,54 @@
 import uuid
 import graphviz
+from collections import defaultdict
+
 
 # Naive Node for visualizing the game tree.
 class Node():
-    def __init__(self, name, value=None):
+    def __init__(self, name, value=0):
         self.name = name
         self.value = value
-        # self.parent = parent
-        self.childrens = []
+        self._uid = str(uuid.uuid4())
     
     def set(self, x): self.value = x
-    
-    def add_node(self, node):
-        self.childrens.append(node)
 
-    def __repr__(self, depth):
-        if self.childrens.__len__() == 0:
-            return f"{self.name}-{self.value:.3f}"
-        return {self.name: [children.__repr__(depth-1) for children in self.childrens]}
+    @property
+    def id(self): return self._uid
+
+    def __repr__(self):
+        return f"{self.name}-{self.value:.3f}"
     
     def __str__(self):
-        return f"<Node name={self.name} value={self.value} childrens={self.childrens}>"
+        return f"<Node name={self.name} value={self.value}>"
 
-    def _get(self, data_dict, graph, parent_id=None, last=False):
-        if last:
-            my_id = str(uuid.uuid4())
-            graph.node(my_id, str(data_dict))
-            graph.edge(my_id, parent_id)
-            return graph
 
-        for data in data_dict.keys():
-            my_id = str(uuid.uuid4())
-            graph.node(my_id, data)
+# Game Tree for LOL.
+class Graph:
+    def __init__(self):
+        # dictionary root-childrens
+        # Tree Graph about connection between nodes.
+        self.graph = defaultdict(list)
+        self._data = {}
 
-            if parent_id != None:
-                graph.edge(my_id, parent_id)
+    def addEdge(self, parent:Node, children:Node):
+        self.graph[parent.id].append(children.id)
+        self._data[children.id] = children
+    
+    def DFS(self, digraph, parent_uid):
+        children_uids = self.graph[parent_uid]
+        if children_uids.__len__() == 0:
+            return
 
-            for child in data_dict[data]:
-                self._get(data_dict=child, graph=graph, parent_id=my_id, last=type(child)==type("a"))
-        
-        return graph
+        for children_uid in children_uids:    
+            children_node = self._data[children_uid]
+            digraph.node(children_uid, children_node.__repr__())
+            digraph.edge(parent_uid, children_uid)
 
-    def viz(self, depth):
-        viz_data = self.__repr__(depth)
-        graph = graphviz.Digraph()
-        
-        graph = self._get(viz_data, graph, None)
+            self.DFS(digraph=digraph, parent_uid=children_uid)
 
-        return graph
+    def viz(self, root_node: Node):
+        digraph = graphviz.Digraph()
+        digraph.node(root_node.id, root_node.__repr__())
+        self.DFS(digraph, root_node.id)
+
+        return digraph
