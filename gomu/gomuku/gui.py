@@ -100,7 +100,7 @@ class GomokuGUI:
         self.screen.blit(prev_label, (10+prev_label.get_width(), cent_y))
         return next_label_pos, prev_label_pos
         
-    def draw_piece(self, row, col):
+    def draw_piece(self, col, row):
         player = self.board.last_player
         circle_pos = (
            col * self.size + self.half_size, 
@@ -148,7 +148,15 @@ class GomokuGUI:
             return False
         
         board_state = self.board.board
-        next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first))
+
+        # Request Another Response until no error occured by that move.
+        while True:
+            try:
+                next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first))
+                break
+            except PosError:
+                if DEBUG >= 3:
+                    print("FATAL: Error during setting stone.")
         col, row = next_pos
         self.values_for_plotting.append(1-winning_percentage)
 

@@ -23,6 +23,7 @@ def tensor2gomuboard(tensor, nrow, ncol, softmax=False, scale=1.0):
         return upscaling(tensor * scale)
 
     tensor = tensor.view(nrow, ncol)
+    tensor = rearrange(tensor, "h w -> w h")
     img = torch.zeros((nrow, ncol, 3))
 
     # white
@@ -32,8 +33,8 @@ def tensor2gomuboard(tensor, nrow, ncol, softmax=False, scale=1.0):
     # blue
     BLUE = torch.tensor([208, 239, 255])/255
 
-    img[tensor==1] = WHITE
-    img[tensor==-1] = BLACK
+    img[tensor==1] = BLACK
+    img[tensor==-1] = WHITE
     img[tensor==2] = BLUE
 
     img = rearrange(img, "h w c -> c h w")

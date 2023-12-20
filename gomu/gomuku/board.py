@@ -42,28 +42,28 @@ class GoMuKuBoard():
         # turn = self.O if ply % 2 == 0 else self.X 
         return ply % 2
     
-    def in_bounds(self, x, y):
-        return self.nrow < x and self.ncol < y and x >= 0 and y >= 0
+    def in_bounds(self, col, row):
+        return self.nrow < row and self.ncol < col and col >= 0 and row >= 0
 
-    def is_empty(self, x, y):
+    def is_empty(self, col, row):
         # return not (self._board.sum(0)[y][x] != 0).any()
-        return self._board.sum(0)[y][x] == 0
+        return self._board.sum(0)[col][row] == 0
 
     def total_empty(self):
         return self._board.count(0)
 
     # pos = (x, y) coordinate
-    def set(self, x, y):
-        if not self.in_bounds(x, y) and self.is_empty(x, y):
+    def set(self, col, row):
+        if not self.in_bounds(col, row) and self.is_empty(col, row):
             turn = self.whose_turn(self.ply)
-            self._board[turn][y][x] = self.STONE
+            self._board[turn][col][row] = self.STONE
             self.last_player = turn
             self.ply += 1
-            self.last_move = (x, y)
+            self.last_move = (col, row)
             
             if DEBUG >= 2:
                 print(f"Player {turn} plays {self.last_move}!")
-            if DEBUG >= 3:
+            if DEBUG >= 4:
                 print(self._board)
         
             return True

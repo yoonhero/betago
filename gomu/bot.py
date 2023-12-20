@@ -12,6 +12,7 @@ from einops import rearrange
 from .helpers import DEBUG
 from .game_tree import Node, Graph
 from .gomuku.errors import PosError
+from .viz import tensor2gomuboard
 
 def check_with_conv2d(tgt_board, n_to_win, *kernels):
     for kernel in kernels:
@@ -109,7 +110,7 @@ class PytorchAgent(Agent):
 
         total_BLACK = torch_state[0].sum()
         total_WHITE = torch_state[1].sum()
-        if total_BLACK != total_WHITE:
+        if total_BLACK == total_WHITE:
             torch_state[0], torch_state[1] = torch_state[1], torch_state[0]
 
         return torch_state
@@ -128,26 +129,33 @@ class PytorchAgent(Agent):
             new_board_state[my_turn, col, row] = 1
             return new_board_state
     
-    def predict_next_pos(self, board_state, top_k):
-        assert top_k >= 3, "Please top_k is greater than 3."
+    def predict_next_pos(self, board_state, top_k, temperature=1):
+        # assert top_k >= 3, "Please top_k is greater than 3."
         policy, value = self.model_predict(board_state)
 
         not_free_space = self.get_not_free_space(board_state=board_state)
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
+        B, ncol, nrow = not_possible.shape
         not_possible[not_possible!=0] = -float("inf")
         policy += not_possible
-        B = not_possible.shape[0]
+
+        if DEBUG >= 3:
+            img = tensor2gomuboard(policy[0], nrow, ncol, softmax=True, scale=10)
+            img.show()
+
         policy = policy.view(B, -1).softmax(-1)
-        indices = torch.arange(policy.shape[-1]).repeat(B, 1)
-        # topk_policy_values, topk_policy_indices = torch.topk(policy, 10, -1)
-        selected_policy = torch.multinomial(policy, num_samples=top_k)
-        policies = torch.gather(indices, 1, selected_policy)
+            
+        # indices = torch.arange(policy.shape[-1]).repeat(B, 1)
+        topk_policy_values, topk_policy_indices = torch.topk(policy, top_k+1, -1)
+        selected_policy = torch.multinomial(topk_policy_values/temperature, num_samples=top_k)
+        policies = torch.gather(topk_policy_indices, 1, selected_policy)
         # _, policies = torch.topk(policy, top_k, -1)
         predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in policies.tolist()]
         return predicted_pos[0], value.squeeze(0)
 
     def forward(self, board_state, top_k=3, **kwargs):
-        return self.predict_next_pos(board_state, top_k=top_k)
+        next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
+        return next_poses[0], value
 
 
 class MinimaxWithAB(PytorchAgent):
@@ -169,12 +177,16 @@ class MinimaxWithAB(PytorchAgent):
         if heuristic_value != 0: return heuristic_value, None
 
         if depth == 0:
+            if DEBUG >= 1:
+                s = torch.from_numpy(board_state)
+                concatenated = s[0]-s[1]
+                tensor2gomuboard(concatenated, nrow=20, ncol=20).show()
             _, tensor_value = self.model_predict(state=board_state)
             value = tensor_value.item()
 
             # Depending on the role, redefine the value for minimax searching.
             # Maximum Player is BOT. They want to maximize their winning probability.
-            # Doing so, on the last depth, Stragety==Max => 
+            # Doing so, on the last depth, Stragety==MAX
             if strategy == MinimaxWithAB.MAX:
                 value = 1 - value
 
@@ -183,7 +195,7 @@ class MinimaxWithAB(PytorchAgent):
             return value, None
 
         next_turn = 1 - my_turn
-        selected_poses, _ = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex)
+        selected_poses, _ = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex, temperature=0.1)
 
         cur_value = float("inf") if strategy == MinimaxWithAB.MIN else -float("inf")
         origin = None
@@ -193,10 +205,11 @@ class MinimaxWithAB(PytorchAgent):
 
         for next_pos in loader:
             cur_node = Node(f"{next_pos}")
+            new_board_state = None
             try:
                 new_board_state = self.get_new_board_state(board_state, next_pos, my_turn)
             except PosError:
-                if DEBUG >= 3:
+                if DEBUG >= 1:
                     print(f"There was error during getting the new board state. --- Pos {next_pos}")
                 continue
             
@@ -204,10 +217,6 @@ class MinimaxWithAB(PytorchAgent):
             if DEBUG >= 3:
                 print(f"--- DEPTH {depth}  ---")
                 print(f"Action Value: {value} | Strategy: {strategy}")
-
-            # Making a connection in Game Tree 
-            cur_node.set(value)
-            game_tree.addEdge(parent_node, cur_node)
 
             if strategy == MinimaxWithAB.MIN:
                 cur_value = min(cur_value, value)
@@ -223,6 +232,10 @@ class MinimaxWithAB(PytorchAgent):
                 alpha = max(alpha, cur_value)
                 if value >= beta:
                     break
+
+            # Making a connection in Game Tree 
+            cur_node.set(value)
+            game_tree.addEdge(parent_node, cur_node)
 
         parent_node.set(cur_value)
         if root and DEBUG >= 2:
