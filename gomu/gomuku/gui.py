@@ -135,6 +135,8 @@ class GomokuGUI:
         return self.board.ply % 2 != int(self.is_human_first)
 
     def update_board(self, col, row):
+        if DEBUG >= 2:
+            print(f"<Update ({col}, {row})>")
         if self.board.set(col, row):
             self.draw_piece(col=col, row=row)
             if DEBUG >= 3: self.update_plot()

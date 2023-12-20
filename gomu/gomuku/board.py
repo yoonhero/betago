@@ -47,7 +47,7 @@ class GoMuKuBoard():
 
     def is_empty(self, col, row):
         # return not (self._board.sum(0)[y][x] != 0).any()
-        return self._board.sum(0)[col][row] == 0
+        return self._board.sum(0)[row][col] == 0
 
     def total_empty(self):
         return self._board.count(0)
@@ -56,7 +56,7 @@ class GoMuKuBoard():
     def set(self, col, row):
         if not self.in_bounds(col, row) and self.is_empty(col, row):
             turn = self.whose_turn(self.ply)
-            self._board[turn][col][row] = self.STONE
+            self._board[turn][row][col] = self.STONE
             self.last_player = turn
             self.ply += 1
             self.last_move = (col, row)

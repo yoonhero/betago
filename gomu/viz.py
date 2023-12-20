@@ -18,12 +18,13 @@ def upscaling(tensor_img):
 
 def tensor2gomuboard(tensor, nrow, ncol, softmax=False, scale=1.0):
     if softmax:
-        tensor = F.softmax(tensor.view(-1)).view(1, nrow, ncol).cpu().detach()
+        tensor = F.softmax(tensor.view(-1), -1).view(1, nrow, ncol).cpu().detach()
+        # tensor = rearrange(tensor, "c h w -> c w h")
 
         return upscaling(tensor * scale)
 
     tensor = tensor.view(nrow, ncol)
-    tensor = rearrange(tensor, "h w -> w h")
+    # tensor = rearrange(tensor, "h w -> w h")
     img = torch.zeros((nrow, ncol, 3))
 
     # white

@@ -61,7 +61,7 @@ class Agent():
             raise PosError(col, row)
 
         # Check Is Empty Space
-        if (board_state[:, col, row]==1).any():
+        if (board_state[:, row, col]==1).any():
             raise PosError(col, row)
 
         return True
@@ -120,13 +120,14 @@ class PytorchAgent(Agent):
         if isinstance(state, np.ndarray):
             state = self.preprocess_state(state).unsqueeze(0)
         policy, value = self.model(state)
+        policy[:, :, 0], policy[:, :, 1] = policy[:, :, 1], policy[:, :,0]
         return policy, value
     
     def get_new_board_state(self, board_state, next_pos, my_turn):
         if self.validate(board_state, next_pos=next_pos):
             col, row = next_pos
             new_board_state = board_state.copy()
-            new_board_state[my_turn, col, row] = 1
+            new_board_state[my_turn, row, col] = 1
             return new_board_state
     
     def predict_next_pos(self, board_state, top_k, temperature=1):
@@ -153,7 +154,7 @@ class PytorchAgent(Agent):
         predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in policies.tolist()]
         return predicted_pos[0], value.squeeze(0)
 
-    def forward(self, board_state, top_k=3, **kwargs):
+    def forward(self, board_state, top_k=1, **kwargs):
         next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
         return next_poses[0], value
 
@@ -177,7 +178,7 @@ class MinimaxWithAB(PytorchAgent):
         if heuristic_value != 0: return heuristic_value, None
 
         if depth == 0:
-            if DEBUG >= 1:
+            if DEBUG >= 2:
                 s = torch.from_numpy(board_state)
                 concatenated = s[0]-s[1]
                 tensor2gomuboard(concatenated, nrow=20, ncol=20).show()
@@ -187,7 +188,7 @@ class MinimaxWithAB(PytorchAgent):
             # Depending on the role, redefine the value for minimax searching.
             # Maximum Player is BOT. They want to maximize their winning probability.
             # Doing so, on the last depth, Stragety==MAX
-            if strategy == MinimaxWithAB.MAX:
+            if strategy == MinimaxWithAB.MIN:
                 value = 1 - value
 
             parent_node.set(value)
