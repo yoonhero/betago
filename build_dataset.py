@@ -4,10 +4,10 @@ from pathlib import Path
 import glob
 from tqdm import tqdm
 
-from gomuku import GoMuKuBoard
+from gomu.gomuku import GoMuKuBoard
 
 
-file_list = glob.glob("./dataset/raw/gomocup2022results/Freestyle*/*.psq")
+file_list = glob.glob("dataset/raw/gomocup2022results/Freestyle*/*.psq")
 output_path = "./dataset/processed"
 Path(output_path).mkdir(exist_ok=True)
 
