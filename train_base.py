@@ -17,8 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-from .base import PocliyValueNet, Unet, Transformer, get_total_parameters
-from .viz import tensor2gomuboard
+from gomu.base import PocliyValueNet, Unet, Transformer, get_total_parameters
+from gomu.viz import tensor2gomuboard
 
 class GOMUDataset(Dataset):
     def __init__(self, max_idx, device):
@@ -95,13 +95,13 @@ class GOMUDataset(Dataset):
 
 
 total_samples = 14000
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "mps" if torch.backends.mps.is_available() else "cpu"
 full_dataset = GOMUDataset(total_samples, device=device)
 train_size = int(0.8 * len(full_dataset))
 test_size = len(full_dataset) - train_size
 train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
 
-batch_size = 256
+batch_size = 512
 train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
 
