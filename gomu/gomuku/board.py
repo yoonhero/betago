@@ -46,8 +46,9 @@ class GoMuKuBoard():
         return self.nrow < row and self.ncol < col and col >= 0 and row >= 0
 
     def is_empty(self, col, row):
-        # return not (self._board.sum(0)[y][x] != 0).any()
-        return self._board.sum(0)[row][col] == 0
+        # return not (self._board.sum(0)[y][x] != 0).any())
+        tmp = self._board.sum(0)
+        return tmp[row][col] == 0
 
     def total_empty(self):
         return self._board.count(0)

@@ -109,7 +109,8 @@ nrow, ncol = 20, 20
 # channels = [2, 8, 36]
 channels = [2, 64, 128, 256, 128, 64, 1]
 #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
-net = PocliyValueNet(nrow, ncol, channels).to(device)
+dropout = 0.2
+net = PocliyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
 # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
 learning_rate = 0.001
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
@@ -127,7 +128,7 @@ bce = nn.BCELoss()
 alpha = 0.8
 grad_clip=2
 
-model_cfg = {"channels": channels, "nrow": nrow, "ncol": ncol, "param": total_parameters}
+model_cfg = {"channels": channels, "nrow": nrow, "ncol": ncol, "param": total_parameters, "dropout": dropout}
 exp_cfg = {"learning_rate": learning_rate, "train_size": train_size, "test_size": test_size, "alpha": alpha, "grad_clip": grad_clip, "total_samples": total_samples}
     
 run = wandb.init(

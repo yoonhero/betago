@@ -159,6 +159,7 @@ class GomokuGUI:
             except PosError:
                 if DEBUG >= 3:
                     print("FATAL: Error during setting stone.")
+        print(winning_percentage)
         col, row = next_pos
         self.values_for_plotting.append(1-winning_percentage)
 

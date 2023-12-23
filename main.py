@@ -11,7 +11,8 @@ from gomu.base import PocliyValueNet
 
 is_gui = os.getenv("GUI")
 # is_gui = True
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "mps"
 bot_type = os.getenv("BOT", "random")
 max_vertex = int(os.getenv("MAX_VERTEX", 3))
 max_depth = int(os.getenv("MAX_DEPTH", 3))
@@ -22,12 +23,12 @@ ncol = 20
 n_to_win = 5
 
 # Load Agent
-cpk_path = "./models/1217-256.pkl"
-if device == "cpu":
-    checkpoint = torch.load(cpk_path, map_location=torch.device("cpu"))["model"]
+cpk_path = os.getenv("LOAD", "./models/1217-256.pkl")
+if device == "cpu" or device == "mps":
+    checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
 else: checkpoint = torch.load(cpk_path)["model"]
 channels = [2, 64, 128, 256, 128, 64, 1]
-model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels)
+model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.2)
 model.load_state_dict(checkpoint)
 model.eval()
 model.to(device)
@@ -60,7 +61,7 @@ if not is_gui:
         
         # print("NOT FREE", not_free_space)
         board_state = board.board
-        selected_poses = bot(board_state)
+        selected_poses, _ = bot(board_state)
         
         col, row = selected_poses
         if not board.set(col, row):
@@ -69,5 +70,5 @@ if not is_gui:
         print("Bot Thinking was completed.")
         print(board)
 else:
-    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=35)
+    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=45)
     game.play()

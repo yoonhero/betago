@@ -95,7 +95,7 @@ class RandomMover(Agent):
         policy = policy.view(-1).softmax(0)
         next_pos_indices = torch.multinomial(policy, num_samples=1).tolist()
         next_pos = self.format_pos(next_pos_indices, not_possible.shape[-1])
-        return next_pos, 0
+        return next_pos[0], 0
 
 # Simple Pytorch Agent
 class PytorchAgent(Agent):
@@ -156,7 +156,7 @@ class PytorchAgent(Agent):
 
     def forward(self, board_state, top_k=1, **kwargs):
         next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
-        return next_poses[0], value
+        return next_poses[0], value.item()
 
 
 class MinimaxWithAB(PytorchAgent):
@@ -183,7 +183,7 @@ class MinimaxWithAB(PytorchAgent):
                 concatenated = s[0]-s[1]
                 tensor2gomuboard(concatenated, nrow=20, ncol=20).show()
             _, tensor_value = self.model_predict(state=board_state)
-            value = tensor_value.item()
+            value = tensor_value.cpu().item()
 
             # Depending on the role, redefine the value for minimax searching.
             # Maximum Player is BOT. They want to maximize their winning probability.

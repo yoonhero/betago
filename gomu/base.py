@@ -235,7 +235,7 @@ class Unet(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, inp, mid, oup, stride=1):
+    def __init__(self, inp, mid, oup, stride=1, dropout=0):
         super().__init__()
 
         self.res_block = nn.Sequential(
@@ -253,18 +253,24 @@ class ResBlock(nn.Module):
                 nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
                 nn.BatchNorm2d(oup)
             )
+        else:
+            self.activation_block = nn.Conv2d(inp, oup, 1, 1, 0, bias=True)
+
+        self.dropout = nn.Dropout2d(p=dropout)
     
     def forward(self, x):
         residual = x
         out = self.res_block(x)
         if self.downsample:
             residual = self.down(residual)
+        else:
+            residual = self.activation_block(residual)
         out = out + residual
         out = self.activation(out)
         return out
 
 class PocliyValueNet(nn.Module):
-    def __init__(self, nrow, ncol, channels):
+    def __init__(self, nrow, ncol, channels, dropout):
         super().__init__()
         self.nrow = nrow
         self.ncol = ncol
@@ -276,7 +282,7 @@ class PocliyValueNet(nn.Module):
             hidden_dim = inp * 3
 
             # conv = ResBlock(inp, hidden_dim, inp)
-            conv = ResBlock(inp, hidden_dim, oup)
+            conv = ResBlock(inp, hidden_dim, oup, dropout=dropout)
             self.convs.append(conv)
 
             #downsample = ResBlock(inp, hidden_dim, oup, stride=2)
@@ -291,7 +297,7 @@ class PocliyValueNet(nn.Module):
             nn.Conv2d(channels[-1], channels[-1], 1, 1, 0),
         )
         self.ff = nn.Sequential(
-            Rearrange("b c w h -> b (c w h)"),
+            Rearrange("b c h w -> b (c h w)"),
             # nn.Linear(final, final),
             nn.Linear(final, final*3),
             nn.ReLU(),
