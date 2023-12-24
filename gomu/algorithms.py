@@ -1,37 +1,156 @@
 # This case isn't unusual.
 # It's quite excited to combine Q and * Q*.
 from collections import defaultdict
+from queue import Queue
+import math
+import uuid
+import random
+
+import torch
 
 from .bot import PytorchAgent
+from .gomuku.board import GoMuKuBoard
 from .game_tree import Graph, Node
+from .helpers import DEBUG
+
+class NodeForDijkstra(Node):
+    def __init__(self, next_pos, value=0):
+        self.next_pos = next_pos
+        self.value = value
+        self._uid = str(uuid.uuid4())
+
+    def set(self, x): self.value = x
+
+    @property
+    def pos(self): return self.next_pos
+
+    def format_pos(self): return f"{self.next_pos[0]},{self.next_pos[1]}"
+
+    def __repr__(self):
+        return f"{self.next_pos}-{self.value:.3f}"
+
+    def __str__(self):
+        return f"Node(next_pos={self.next_pos} value={self.value})"
+
+class GraphForDijkstra(Graph):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.uid = uuid.uuid4()
+        self.pos_connection = defaultdict(list)
+
+    def addEdge(self, parent: NodeForDijkstra, children: NodeForDijkstra):
+        super().addEdge(parent, children)
+        self.pos_connection[parent.format_pos()].append(children.id)
+    
+    def getEndingScenarios(self):
+        win = []
+        lose = []
+        for (key, node) in self._data.items():
+            # if math.abs(node.value) == float("inf"):
+            if node.value == float("inf"):
+                win.append(key)
+            elif node.value == float("inf"):
+                lose.append(key)
+                
+        return win, lose
 
 # To find optimal decision we should follow up the tree.
 class DijkstraAgent(PytorchAgent):
-    def __init__(self, **kwargs):
+    def __init__(self, max_depth_per_search, max_search_vertex, **kwargs):
         super().__init__(**kwargs)
+        self.max_depth_per_search = max_depth_per_search
+        self.max_search_vertex = max_search_vertex
 
-    def make_game_tree(self, game_tree: Graph, board_state, depth: int, parent: tuple[int, int], my_turn: int):
+    def dijkstra(self, game_tree: GraphForDijkstra, root_node: NodeForDijkstra, mode: int):
+        # mode
+        # 1. find the shortest path to infinite value scenario.
+        # 2. find the safe path toward infinite value scenario.
+
+        # Root's children
+        childrens = game_tree.vertexes(root_node)
+
+        # First Check are there any ending possible scenarios.
+        # If there aren't existed the winning possible scenario, Just return highest value next position prediction.
+        win, lose = game_tree.getEndingScenarios()
+
+        if win.__len__() == 0:
+            max_val = 0
+            max_node = None
+            for children in childrens:
+                if children.value >= max_val:
+                    max_val = children.value
+                    max_node = children
+
+            return max_node.next_pos, max_val
+
+        if mode == 1:
+            selected_key = random.choice(win)
+            to_search = Queue()
+            for children in childrens:
+                to_search.put((children.id, children.pos, 1))
+
+            # BFS searching
+            while True:
+                current_id, pos, depth = to_search.get()
+                children_keys = game_tree.graph[current_id] 
+                for children_key in children_keys:
+                    # Return the searching result after find the shortest path to winning.
+                    if children_key == selected_key:
+                        if DEBUG >= 2:
+                            print(f"Find the shorted path on depth {depth}")
+                        return pos, float("inf")
+                    
+                    to_search.put((children_key, pos, depth+1))
+        
+        elif mode == 2:
+            pass
+
+      # Making a Game Tree
+    def make_game_tree(self, parent_node: NodeForDijkstra, game_tree: GraphForDijkstra, board_state, depth: int, is_my_turn: bool, turn: int):
+        heuristic_value = self.heuristic(board_state=board_state, my_turn=1-turn)
+        if is_my_turn: heuristic_value = -heuristic_value
+        if heuristic_value != 0: return heuristic_value
+
         if depth == 0:
-            return
+            _, tensor_value = self.model_predict(state=board_state)
+            value = tensor_value.cpu().item()
 
-        next_turn = 1 - my_turn
-        selected_poses, _ = self.predict_next_pos(board_state=board_state, top_k=self.max_search_node)
+            if is_my_turn:
+                value = 1 - value
+
+            return value
+
+        next_turn = 1 - turn
+        selected_poses, cur_value = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex)
+        cur_value = cur_value.cpu().item()
 
         for next_pos in selected_poses:
-            game_tree.addEdge(parent, next_pos)
-            new_board_state = self.get_new_board_state(board_state, next_pos, my_turn)
-            
-            self.make_game_tree(game_tree, new_board_state, depth-1, parent=next_pos, my_turn=next_turn)
+            current_node = NodeForDijkstra(next_pos)
+            game_tree.addEdge(parent_node, current_node)
 
-    def dijkstra(self):
-        pass
+            new_board_state = self.get_new_board_state(board_state, next_pos, turn)
+            # GoMuKuBoard.viz(new_board_state).save(f"./tmp/history/{game_tree.uid}-{depth}-{current_node.id}.png")
+            
+            value = self.make_game_tree(parent_node=current_node, game_tree=game_tree, board_state=new_board_state, depth=depth-1, is_my_turn=not is_my_turn, turn=next_turn)
+            current_node.set(value)
         
-    def forward(self, board_state, turn, max_depth_per_search=3, attempts=3):
-        cur_parent = "root"
-        for _ in range(attempts):
-            game_tree = Graph()
-            self.make_game_tree(game_tree=game_tree, board_state=board_state, depth=max_depth_per_search, parent=cur_parent, my_turn=turn)
+        if not is_my_turn:
+            cur_value = 1-cur_value
+        return cur_value
+
         
+    def forward(self, board_state, turn):
+        root_node = NodeForDijkstra((-1, -1))
+
+        game_tree = GraphForDijkstra()
+        self.make_game_tree(game_tree=game_tree, board_state=board_state, depth=self.max_depth_per_search, is_my_turn=True, parent_node=root_node, turn=turn)
+
+        if DEBUG >= 2:
+            game_tree.viz(root_node).view()
+
+        next_pos, value = self.dijkstra(game_tree=game_tree, root_node=root_node, mode=1)
+
+        return next_pos, value
 
 def Astar():
     pass

@@ -1,12 +1,35 @@
 import numpy as np
 from scipy.signal import convolve2d
+import torch
 
+from ..viz import tensor2gomuboard
 from ..helpers import DEBUG
+
+
+def check_with_conv2d(tgt_board, n_to_win, *kernels):
+    for kernel in kernels:
+        conv_calc_result = convolve2d(tgt_board, kernel, mode='valid')
+        is_done = (conv_calc_result==n_to_win).any()
+        if is_done:
+            return True
+    return False
+        
+def check_all_diagonal(tgt_board, n_to_win):
+    kernel1 = np.eye(n_to_win)
+    kernel2 = np.eye(n_to_win)[::-1]
+
+    return check_with_conv2d(tgt_board, n_to_win, kernel1, kernel2)
+
+def check_all_wh(tgt_board, n_to_win):
+    kernel1 = np.ones((1,n_to_win))
+    kernel2 = np.ones((n_to_win, 1))
+
+    return check_with_conv2d(tgt_board, n_to_win, kernel1, kernel2)
 
 class GoMuKuBoard():
     def __init__(self, nrow, ncol, n_to_win, blank="."):
         # Black -> White
-        self._board = np.zeros((2, nrow, ncol))
+        self._board = np.zeros((2, nrow, ncol)) # [2, row, col]
         self.nrow = nrow
         self.ncol = ncol
         # The number of stone in the board
@@ -71,33 +94,25 @@ class GoMuKuBoard():
             
         return False
 
-    def check_with_conv2d(self, tgt_board, *kernels):
-        for kernel in kernels:
-            conv_calc_result = convolve2d(tgt_board, kernel, mode='valid')
-            is_done = (conv_calc_result==self.n_to_win).any()
-            if is_done:
-                return True
-        return False
-            
-    def check_all_diagonal(self, tgt_board):
-        kernel1 = np.eye(self.n_to_win)
-        kernel2 = np.eye(self.n_to_win)[::-1]
-
-        return self.check_with_conv2d(tgt_board, kernel1, kernel2)
-    
-    def check_all_wh(self, tgt_board):
-        kernel1 = np.ones((1,self.n_to_win))
-        kernel2 = np.ones((self.n_to_win, 1))
-
-        return self.check_with_conv2d(tgt_board, kernel1, kernel2)
+    @staticmethod    
+    def is_game_done(board_state, turn, n_to_win):
+        tgt_board = board_state[turn]
+        return check_all_wh(tgt_board, n_to_win) or check_all_diagonal(tgt_board, n_to_win)
 
     def is_gameover(self):
         turn = self.whose_turn(self.ply-1)
-        tgt_board = self._board[turn]
-        return self.check_all_wh(tgt_board) or self.check_all_diagonal(tgt_board)
+        return GoMuKuBoard.is_game_done(board_state=self._board, turn=turn, n_to_win=self.n_to_win)
         
     def is_draw(self):
         return self.ply >= self.nrow * self.ncol
+
+    @staticmethod
+    def viz(board_state):
+        _, nrow, ncol = board_state.shape
+        if isinstance(board_state, np.ndarray):
+            board_state = torch.from_numpy(board_state)
+        concatenated = board_state[0] - board_state[1]
+        return tensor2gomuboard(concatenated, nrow=nrow, ncol=ncol)
 
     # formatting the numpy array into human level.
     def forviz(self):

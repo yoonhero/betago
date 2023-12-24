@@ -1,7 +1,5 @@
 from typing import Any
 import numpy as np
-import random
-from scipy.signal import convolve2d
 import tqdm
 from copy import deepcopy
 
@@ -10,29 +8,10 @@ import torch.nn as nn
 from einops import rearrange
 
 from .helpers import DEBUG
+from .gomuku.board import GoMuKuBoard
 from .game_tree import Node, Graph
 from .gomuku.errors import PosError
 from .viz import tensor2gomuboard
-
-def check_with_conv2d(tgt_board, n_to_win, *kernels):
-    for kernel in kernels:
-        conv_calc_result = convolve2d(tgt_board, kernel, mode='valid')
-        is_done = (conv_calc_result==n_to_win).any()
-        if is_done:
-            return True
-    return False
-
-def check_all_cross(tgt_board, n_to_win):
-    kernel1 = np.eye(n_to_win)
-    kernel2 = np.eye(n_to_win)[::-1]
-
-    return check_with_conv2d(tgt_board, n_to_win, kernel1, kernel2)
-
-def check_all_line(tgt_board, n_to_win):
-    kernel1 = np.ones((1,n_to_win))
-    kernel2 = np.ones((n_to_win, 1))
-
-    return check_with_conv2d(tgt_board, n_to_win, kernel1, kernel2)
 
 # Base Agent Structure
 class Agent():
@@ -70,7 +49,7 @@ class Agent():
     def heuristic(self, board_state, my_turn):
         heristic_value = 0
 
-        is_game_done = check_all_cross(board_state[my_turn], self.n_to_win) or check_all_line(board_state[my_turn], self.n_to_win)
+        is_game_done = GoMuKuBoard.is_game_done(board_state, my_turn, self.n_to_win)
 
         if is_game_done:
             heristic_value = float("inf")
@@ -111,7 +90,7 @@ class PytorchAgent(Agent):
         total_BLACK = torch_state[0].sum()
         total_WHITE = torch_state[1].sum()
         if total_BLACK == total_WHITE:
-            torch_state[0], torch_state[1] = torch_state[1], torch_state[0]
+            torch_state = torch.roll(torch_state, 1, 0)
 
         return torch_state
 
@@ -156,7 +135,7 @@ class PytorchAgent(Agent):
 
     def forward(self, board_state, top_k=1, **kwargs):
         next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
-        return next_poses[0], value.item()
+        return next_poses[0], value.cpu().item()
 
 
 class MinimaxWithAB(PytorchAgent):
@@ -178,17 +157,15 @@ class MinimaxWithAB(PytorchAgent):
         if heuristic_value != 0: return heuristic_value, None
 
         if depth == 0:
-            if DEBUG >= 2:
-                s = torch.from_numpy(board_state)
-                concatenated = s[0]-s[1]
-                tensor2gomuboard(concatenated, nrow=20, ncol=20).show()
+            if DEBUG >= 3:
+                GoMuKuBoard.viz(board_state).show()
             _, tensor_value = self.model_predict(state=board_state)
             value = tensor_value.cpu().item()
 
             # Depending on the role, redefine the value for minimax searching.
             # Maximum Player is BOT. They want to maximize their winning probability.
             # Doing so, on the last depth, Stragety==MAX
-            if strategy == MinimaxWithAB.MIN:
+            if strategy == MinimaxWithAB.MAX:
                 value = 1 - value
 
             parent_node.set(value)

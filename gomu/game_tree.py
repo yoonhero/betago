@@ -19,7 +19,7 @@ class Node():
         return f"{self.name}-{self.value:.3f}"
     
     def __str__(self):
-        return f"<Node name={self.name} value={self.value}>"
+        return f"Node(name={self.name} value={self.value})"
 
 
 # Game Tree for LOL.
@@ -33,6 +33,11 @@ class Graph:
     def addEdge(self, parent:Node, children:Node):
         self.graph[parent.id].append(children.id)
         self._data[children.id] = children
+
+    # Return children nodes.
+    def vertexes(self, parent: Node) -> list[Node]:
+        childrens = self.graph[parent.id]
+        return [self._data[children_id] for children_id in childrens]
     
     def DFS(self, digraph, parent_uid):
         children_uids = self.graph[parent_uid]

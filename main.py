@@ -2,10 +2,13 @@
 import numpy as np
 import os
 import torch
+import time
 
+from gomu.helpers import DEBUG
 from gomu.gomuku import GoMuKuBoard
 from gomu.gomuku.gui import GomokuGUI
 from gomu.bot import *
+from gomu.algorithms import *
 
 from gomu.base import PocliyValueNet
 
@@ -27,18 +30,26 @@ cpk_path = os.getenv("LOAD", "./models/1217-256.pkl")
 if device == "cpu" or device == "mps":
     checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
 else: checkpoint = torch.load(cpk_path)["model"]
-channels = [2, 64, 128, 256, 128, 64, 1]
-model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.2)
+channels = [2, 64, 128, 256, 128, 64, 32, 1]
+start = time.time()
+model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
 model.load_state_dict(checkpoint)
 model.eval()
 model.to(device)
 
+if DEBUG>=2:
+    print(f"Loading the PolicyValue Network in {time.time() - start}s")
+
+base_config = {"model": model, "device": device, "n_to_win":n_to_win}
+
 if "random" in bot_type:
     bot = RandomMover(n_to_win=n_to_win)
 if "torch" in bot_type:
-    bot = PytorchAgent(model=model, device=device, n_to_win=n_to_win)
+    bot = PytorchAgent(**base_config)
 if "minimax" in bot_type:
-    bot = MinimaxWithAB(model=model, device=device, n_to_win=n_to_win, max_search_vertex=max_vertex, max_depth=max_depth)
+    bot = MinimaxWithAB(**base_config, max_search_vertex=max_vertex, max_depth=max_depth)
+if "dijkstra" in bot_type:
+    bot = DijkstraAgent(**base_config, max_depth_per_search=max_depth, max_search_vertex=max_vertex)
 
 if not is_gui:
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
