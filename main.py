@@ -26,7 +26,7 @@ ncol = 20
 n_to_win = 5
 
 # Load Agent
-cpk_path = os.getenv("LOAD", "./models/1217-256.pkl")
+cpk_path = os.getenv("LOAD", "./models/1224-256.pkl")
 if device == "cpu" or device == "mps":
     checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
 else: checkpoint = torch.load(cpk_path)["model"]
@@ -50,6 +50,8 @@ if "minimax" in bot_type:
     bot = MinimaxWithAB(**base_config, max_search_vertex=max_vertex, max_depth=max_depth)
 if "dijkstra" in bot_type:
     bot = DijkstraAgent(**base_config, max_depth_per_search=max_depth, max_search_vertex=max_vertex)
+if "astar" in bot_type:
+    bot = AstartAgent(**base_config, max_depth=max_depth, max_vertexs=max_vertex)
 
 if not is_gui:
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)

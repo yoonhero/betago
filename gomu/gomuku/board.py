@@ -115,26 +115,27 @@ class GoMuKuBoard():
         return tensor2gomuboard(concatenated, nrow=nrow, ncol=ncol)
 
     # formatting the numpy array into human level.
-    def forviz(self):
-        data = self._board
+    @staticmethod
+    def forviz(self, board):
         formatted_data = []
 
         tmp = np.zeros((self.nrow, self.ncol))
         for stone_color in range(2):
-            tmp[data[stone_color] != 0] = 1-2*stone_color
+            tmp[board[stone_color] != 0] = 1-2*stone_color
         formatted_data = tmp.tolist()
         formatted_data = [[self.s2m[int(item)] for item in row] for row in formatted_data]
     
         return formatted_data
 
     def __repr__(self):
-        formatted_data = self.forviz()
+        data = self._board
+        formatted_data = GoMuKuBoard.forviz(board=data)
        
         row = "    " + " | ".join([str(i) for i in range(self.ncol)]) + "\n"
 
         return row + "\n".join([f"{row_num} | "+" | ".join(row) for row_num, row in enumerate(formatted_data)])
 
-
+    
 
 if __name__ == "__main__":
     nrow = 5

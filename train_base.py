@@ -109,10 +109,13 @@ if __name__ == "__main__":
 
     nrow, ncol = 20, 20
     # channels = [2, 8, 36]
-    channels = [2, 64, 128, 256, 128, 64, 32, 1]
+    channels = [2, 64, 128, 256, 128, 64, 1]
     #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
-    dropout = 0.5
+    dropout = 0.4
     net = PocliyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
+
+    # net = torch.compile(not_compiled)
+
     # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
     # learning_rate = 0.001
     learning_rate = 0.001
@@ -213,8 +216,9 @@ if __name__ == "__main__":
 
         run.log({"train/loss": train_loss, "train/acc": train_accuracy, "test/loss": test_loss, "test/acc": test_accuracy})
 
-        save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
-        torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, save_path)
+        if (epoch+1) % 2 == 0:
+            save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
+            torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, save_path)
 
         print(f"{epoch}th EPOCH DONE!! ---- Train: {train_loss} | Test: {test_loss}")
 

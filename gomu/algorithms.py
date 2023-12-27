@@ -5,8 +5,11 @@ from queue import Queue
 import math
 import uuid
 import random
+from queue import PriorityQueue
 
+import numpy as np
 import torch
+from einops import rearrange
 
 from .bot import PytorchAgent
 from .gomuku.board import GoMuKuBoard
@@ -152,6 +155,111 @@ class DijkstraAgent(PytorchAgent):
 
         return next_pos, value
 
-def Astar():
-    pass
+
+
+class AstartAgent(PytorchAgent):
+    def __init__(self, max_depth, max_vertexs, **kwargs):
+        super().__init__(**kwargs)
+        self.max_depth = max_depth
+        self.max_vertexs = max_vertexs
+        self.maximum_affordable = math.ceil(math.sqrt(max_vertexs ^ max_depth))
+
+    def best_choice(self, board_state, turn):
+        # this value is transition cost.
+        next_poses, value = self.predict_next_pos(board_state, top_k=1, best=True)
+        next_pos = next_poses[0]
+        new_state = self.get_new_board_state(board_state=board_state, next_pos=next_pos, my_turn=turn)
+
+        return new_state, value.cpu().item()
     
+    def numpy_to_key(self, board: np.ndarray):
+        # return "".join([str(int(stone)) for stone in board.tolist()])
+        return board.tobytes()
+    
+    def get_q_with_batch(self, board_state, turn, next_poses):
+        B = len(next_poses)
+        board_state = self.preprocess_state(board_state)
+        board_state = board_state.repeat(B, 1, 1, 1)
+        # board_state = rearrange(board_state, "B C H W -> C B H W")
+        # board_state[turn, next_poses] = 1
+        for i in range(B):
+            board_state[i, turn, next_poses[i][1], next_poses[i][0]] = 1
+        # board_state = rearrange(board_state, "")
+
+        _, value = self.model(board_state)
+        return value.cpu().detach().tolist()
+    
+    def forward(self, board_state, turn, **kwargs):
+        total_stone = (board_state != 0).sum()
+
+        if total_stone <= 6:
+            return super().forward(board_state, **kwargs)
+        
+        # Fine the Optimal Choice based on astar algorihtm
+        open = PriorityQueue()
+        closed = defaultdict(lambda: None)
+        valuemap = defaultdict(lambda: float("inf"))        
+        opposite_turn = 1 - turn
+
+        my_initial_best_choices, _ = self.predict_next_pos(board_state, top_k=self.max_vertexs, best=True)
+        for i, my_initial_best_choice in enumerate(my_initial_best_choices):
+            initial_item = (0, board_state, my_initial_best_choice, 0, 1, i)
+            open.put(initial_item)
+        
+        count = 0
+        
+        # Transition Cost = Next Mover's Expected Value?
+        while not open.empty():
+            current_turn = turn
+            _, state, action, prev_state_cost, depth, ith = open.get()
+
+            # restrict the max searching depth for no solution case.
+            if depth >= self.max_depth:
+                count += 1
+                if count <= self.maximum_affordable:
+                    continue
+
+                if DEBUG >= 2:
+                    print("STOP Searching Cause Current Depth Max Depth Setting.")
+                return super().forward(board_state, **kwargs)
+            
+            new_state = self.get_new_board_state(state, next_pos=action, my_turn=current_turn)
+            # Exit the loop when found the desired board state.
+            if self.heuristic(board_state=state, my_turn=current_turn) > 0:
+                break
+        
+            newnew_state, current_cost = self.best_choice(board_state=new_state, turn=opposite_turn)
+            # Prevent ignoring the ending scenario
+            if self.heuristic(board_state=newnew_state, my_turn=opposite_turn) > 0:
+                continue
+
+            state_cost = prev_state_cost + current_cost
+
+            str_state = self.numpy_to_key(state)
+            str_newnew_state = self.numpy_to_key(newnew_state)
+            if str_state not in closed.keys() or state_cost < valuemap[str_newnew_state]:
+                closed[str_newnew_state] = state
+                valuemap[str_newnew_state] = state_cost
+                next_poses, _ = self.predict_next_pos(newnew_state, top_k=self.max_vertexs, best=False)
+                qs = self.get_q_with_batch(board_state=newnew_state, next_poses=next_poses, turn=turn)
+
+                for i, next_pos in enumerate(next_poses):
+                    q = qs[i][0]
+                    final_cost = state_cost + q
+                    item = (final_cost, newnew_state, next_pos, state_cost, depth+1, ith)
+                    open.put(item)
+        
+        # Reconstruct the path
+        # while True:
+        #     state = closed[state]
+        #     if state == None:
+        #         break
+        #     # col, row = cur_action
+        #     # state[cur_turn, row, col] = 0
+        next_pos = my_initial_best_choices[ith]
+        if DEBUG >= 2:
+            GoMuKuBoard.viz(board_state=state).show()
+            print("Q* Searching Finished!!")
+            print(f"Predicted Next Position: {next_pos}")
+
+        return next_pos, 1

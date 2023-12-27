@@ -47,14 +47,13 @@ class Agent():
 
     # Give a heuristic value to prevent ugly movement.
     def heuristic(self, board_state, my_turn):
-        heristic_value = 0
+        heuristic_value = 0
 
         is_game_done = GoMuKuBoard.is_game_done(board_state, my_turn, self.n_to_win)
-
         if is_game_done:
-            heristic_value = float("inf")
+            heuristic_value = float("inf")
         
-        return heristic_value
+        return heuristic_value
 
     def get_not_free_space(self, board_state):
         not_free_space = board_state.sum(0)
@@ -89,7 +88,7 @@ class PytorchAgent(Agent):
 
         total_BLACK = torch_state[0].sum()
         total_WHITE = torch_state[1].sum()
-        if total_BLACK == total_WHITE:
+        if total_BLACK != total_WHITE:
             torch_state = torch.roll(torch_state, 1, 0)
 
         return torch_state
@@ -99,7 +98,7 @@ class PytorchAgent(Agent):
         if isinstance(state, np.ndarray):
             state = self.preprocess_state(state).unsqueeze(0)
         policy, value = self.model(state)
-        policy[:, :, 0], policy[:, :, 1] = policy[:, :, 1], policy[:, :,0]
+        # policy[:, :, 0], policy[:, :, 1] = policy[:, :, 1], policy[:, :,0]
         return policy, value
     
     def get_new_board_state(self, board_state, next_pos, my_turn):
@@ -109,7 +108,7 @@ class PytorchAgent(Agent):
             new_board_state[my_turn, row, col] = 1
             return new_board_state
     
-    def predict_next_pos(self, board_state, top_k, temperature=1):
+    def predict_next_pos(self, board_state, top_k, temperature=1, best=False):
         # assert top_k >= 3, "Please top_k is greater than 3."
         policy, value = self.model_predict(board_state)
 
@@ -126,12 +125,19 @@ class PytorchAgent(Agent):
         policy = policy.view(B, -1).softmax(-1)
             
         # indices = torch.arange(policy.shape[-1]).repeat(B, 1)
-        topk_policy_values, topk_policy_indices = torch.topk(policy, top_k+1, -1)
+        if best:
+            sampling_k = top_k
+        else:
+            sampling_k = top_k + 1
+        topk_policy_values, topk_policy_indices = torch.topk(policy, sampling_k, -1)
         selected_policy = torch.multinomial(topk_policy_values/temperature, num_samples=top_k)
         policies = torch.gather(topk_policy_indices, 1, selected_policy)
         # _, policies = torch.topk(policy, top_k, -1)
         predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in policies.tolist()]
+        # if not batch:
         return predicted_pos[0], value.squeeze(0)
+        # else:
+            # return predicted_pos, value
 
     def forward(self, board_state, top_k=1, **kwargs):
         next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
@@ -146,6 +152,7 @@ class MinimaxWithAB(PytorchAgent):
         super().__init__(**kwargs)
         self.max_search_vertex = max_search_vertex
         self.max_depth = max_depth
+        self.gamma = 1e-1
 
     def whose_turn(self, board_state):
         return int(board_state[0].sum() == board_state[1].sum())
@@ -173,7 +180,9 @@ class MinimaxWithAB(PytorchAgent):
             return value, None
 
         next_turn = 1 - my_turn
-        selected_poses, _ = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex, temperature=0.1)
+        selected_poses, current_state_value = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex, temperature=0.1)
+        # current_state_value = current_state_value.cpu().item()
+        # if strategy == MinimaxWithAB.MIN: current_state_value = 1 - current_state_value
 
         cur_value = float("inf") if strategy == MinimaxWithAB.MIN else -float("inf")
         origin = None
@@ -195,24 +204,27 @@ class MinimaxWithAB(PytorchAgent):
             if DEBUG >= 3:
                 print(f"--- DEPTH {depth}  ---")
                 print(f"Action Value: {value} | Strategy: {strategy}")
+            
+            # recursive_value = current_state_value + self.gamma * value
+            recursive_value = value
 
             if strategy == MinimaxWithAB.MIN:
-                cur_value = min(cur_value, value)
-                if cur_value == value:
+                cur_value = min(cur_value, recursive_value)
+                if cur_value == recursive_value:
                     origin = next_pos
                 beta = min(beta, cur_value)
                 if value <= alpha:
                     break
             elif strategy == MinimaxWithAB.MAX:
-                cur_value = max(cur_value, value)
-                if cur_value == value:
+                cur_value = max(cur_value, recursive_value)
+                if cur_value == recursive_value:
                     origin = next_pos
                 alpha = max(alpha, cur_value)
                 if value >= beta:
                     break
 
             # Making a connection in Game Tree 
-            cur_node.set(value)
+            cur_node.set(recursive_value)
             game_tree.addEdge(parent_node, cur_node)
 
         parent_node.set(cur_value)
