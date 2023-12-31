@@ -6,6 +6,7 @@ import math
 import uuid
 import random
 from queue import PriorityQueue
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -157,34 +158,39 @@ class DijkstraAgent(PytorchAgent):
 
 
 
-class AstartAgent(PytorchAgent):
+class QstartAgent(PytorchAgent):
     def __init__(self, max_depth, max_vertexs, **kwargs):
         super().__init__(**kwargs)
         self.max_depth = max_depth
         self.max_vertexs = max_vertexs
         self.maximum_affordable = math.ceil(math.sqrt(max_vertexs ^ max_depth))
 
-    def best_choice(self, board_state, turn):
+    def best_choice(self, board_state, turn, history):
         # this value is transition cost.
-        next_poses, value = self.predict_next_pos(board_state, top_k=1, best=True)
+        next_poses, value = self.predict_next_pos(board_state, top_k=1, best=True, history=history)
         next_pos = next_poses[0]
         new_state = self.get_new_board_state(board_state=board_state, next_pos=next_pos, my_turn=turn)
 
-        return new_state, value.cpu().item()
+        return new_state, value.cpu().item(), next_pos
     
     def numpy_to_key(self, board: np.ndarray):
         # return "".join([str(int(stone)) for stone in board.tolist()])
         return board.tobytes()
     
-    def get_q_with_batch(self, board_state, turn, next_poses):
+    def get_q_with_batch(self, board_state, turn, next_poses, history):
+        _, _, ncol, nrow = board_state
         B = len(next_poses)
         board_state = self.preprocess_state(board_state)
         board_state = board_state.repeat(B, 1, 1, 1)
+        tensor_history = self.make_history_state(history, nrow=nrow, ncol=ncol, nrow=self.nrow)
+        tensor_history = tensor_history.repeat(B, 1, 1, 1)
         # board_state = rearrange(board_state, "B C H W -> C B H W")
         # board_state[turn, next_poses] = 1
         for i in range(B):
             board_state[i, turn, next_poses[i][1], next_poses[i][0]] = 1
         # board_state = rearrange(board_state, "")
+        if self.with_history:
+            board_state = torch.cat([tensor_history, board_state], dim=0)
 
         _, value = self.model(board_state)
         return value.cpu().detach().tolist()
@@ -201,9 +207,11 @@ class AstartAgent(PytorchAgent):
         valuemap = defaultdict(lambda: float("inf"))        
         opposite_turn = 1 - turn
 
-        my_initial_best_choices, _ = self.predict_next_pos(board_state, top_k=self.max_vertexs, best=True)
+        history = self.history
+
+        my_initial_best_choices, _ = self.predict_next_pos(board_state, history=history, top_k=self.max_vertexs, best=True)
         for i, my_initial_best_choice in enumerate(my_initial_best_choices):
-            initial_item = (0, board_state, my_initial_best_choice, 0, 1, i)
+            initial_item = (0, board_state, my_initial_best_choice, 0, 1, i, deepcopy(history))
             open.put(initial_item)
         
         count = 0
@@ -211,7 +219,7 @@ class AstartAgent(PytorchAgent):
         # Transition Cost = Next Mover's Expected Value?
         while not open.empty():
             current_turn = turn
-            _, state, action, prev_state_cost, depth, ith = open.get()
+            _, state, action, prev_state_cost, depth, ith, _history = open.get()
 
             # restrict the max searching depth for no solution case.
             if depth >= self.max_depth:
@@ -228,7 +236,8 @@ class AstartAgent(PytorchAgent):
             if self.heuristic(board_state=state, my_turn=current_turn) > 0:
                 break
         
-            newnew_state, current_cost = self.best_choice(board_state=new_state, turn=opposite_turn)
+            newnew_state, current_cost, best_next_pose = self.best_choice(board_state=new_state, turn=opposite_turn, history=_history)
+            _history.append(best_next_pose)
             # Prevent ignoring the ending scenario
             if self.heuristic(board_state=newnew_state, my_turn=opposite_turn) > 0:
                 continue
@@ -240,13 +249,15 @@ class AstartAgent(PytorchAgent):
             if str_state not in closed.keys() or state_cost < valuemap[str_newnew_state]:
                 closed[str_newnew_state] = state
                 valuemap[str_newnew_state] = state_cost
-                next_poses, _ = self.predict_next_pos(newnew_state, top_k=self.max_vertexs, best=False)
+                next_poses, _ = self.predict_next_pos(newnew_state, top_k=self.max_vertexs, best=False, history=_history)
                 qs = self.get_q_with_batch(board_state=newnew_state, next_poses=next_poses, turn=turn)
 
                 for i, next_pos in enumerate(next_poses):
+                    __history = deepcopy(_history)
+                    __history.append(next_pos)
                     q = qs[i][0]
                     final_cost = state_cost + q
-                    item = (final_cost, newnew_state, next_pos, state_cost, depth+1, ith)
+                    item = (final_cost, newnew_state, next_pos, state_cost, depth+1, ith, __history)
                     open.put(item)
         
         # Reconstruct the path

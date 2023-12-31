@@ -115,7 +115,6 @@ class GoMuKuBoard():
         return tensor2gomuboard(concatenated, nrow=nrow, ncol=ncol)
 
     # formatting the numpy array into human level.
-    @staticmethod
     def forviz(self, board):
         formatted_data = []
 
@@ -129,12 +128,14 @@ class GoMuKuBoard():
 
     def __repr__(self):
         data = self._board
-        formatted_data = GoMuKuBoard.forviz(board=data)
+        formatted_data = self.forviz(board=data)
        
         row = "    " + " | ".join([str(i) for i in range(self.ncol)]) + "\n"
 
         return row + "\n".join([f"{row_num} | "+" | ".join(row) for row_num, row in enumerate(formatted_data)])
 
+    def load_board(self, board_state: np.ndarray):  
+        self._board = board_state
     
 
 if __name__ == "__main__":

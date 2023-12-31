@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from einops.layers.torch import Rearrange
+from copy import deepcopy
 
 # Using binary characteristic for getting max divisable time by 2.
 def n_divide_by_2(x):
@@ -269,7 +270,7 @@ class ResBlock(nn.Module):
         out = self.activation(out)
         return out
 
-class PocliyValueNet(nn.Module):
+class PolicyValueNet(nn.Module):
     def __init__(self, nrow, ncol, channels, dropout):
         super().__init__()
         self.nrow = nrow
@@ -300,9 +301,9 @@ class PocliyValueNet(nn.Module):
             Rearrange("b c h w -> b (c h w)"),
             # nn.Linear(final, final),
             nn.Linear(final, final*3),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(final*3, final), 
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(final, 1),
             nn.Sigmoid()
         )
@@ -323,11 +324,18 @@ class PocliyValueNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
+        # tmp = deepcopy(x)
         for conv in self.convs:
             x = conv(x)
         
         policy = self.conv1x(x)
         value = self.ff(x)
+
+        # Masking was bad.
+        # if self.train:
+        #     # B = tmp.shape[0]
+        #     not_free_space = tmp.sum(1).unsqueeze(1)
+        #     policy = policy.masked_fill(not_free_space==1, -1e9)
 
         return policy, value
 
@@ -337,7 +345,10 @@ def get_total_parameters(net):
 
 
 if __name__ == "__main__":
-    net = Unet(20, 20, [2, 5, 10])
-    print(net.total())
-    to_feed = torch.zeros((1, 2, 20, 20))
-    print(net(to_feed).shape)
+    # net = Unet(20, 20, [2, 5, 10])
+    channels = [2, 64, 128, 256, 128, 64, 32, 1]
+    net = PolicyValueNet(20, 20, channels, 0)
+    # print(net/.total())
+    to_feed = torch.zeros((10, 2, 20, 20))
+    # print(net(to_feed))
+    print(net(to_feed))

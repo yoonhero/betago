@@ -10,15 +10,14 @@ from gomu.gomuku.gui import GomokuGUI
 from gomu.bot import *
 from gomu.algorithms import *
 
-from gomu.base import PocliyValueNet
+from gomu.base import PolicyValueNet
 
 is_gui = os.getenv("GUI")
-# is_gui = True
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-device = "mps"
-bot_type = os.getenv("BOT", "random")
+device = os.getnev("DEVICE", "mps") # cuda | cpu | mps
+bot_type = os.getenv("BOT", "random") # random | torch | minimax | dijkstra | qstar
 max_vertex = int(os.getenv("MAX_VERTEX", 3))
 max_depth = int(os.getenv("MAX_DEPTH", 3))
+first_channel = int(os.getenv("FIRST_CHAN", 2)) # default is 2 | history_size + 2
 
 # Gomu Board
 nrow = 20
@@ -30,9 +29,10 @@ cpk_path = os.getenv("LOAD", "./models/1224-256.pkl")
 if device == "cpu" or device == "mps":
     checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
 else: checkpoint = torch.load(cpk_path)["model"]
-channels = [2, 64, 128, 256, 128, 64, 32, 1]
+channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
+with_history = channels[0] != 2
 start = time.time()
-model = PocliyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
+model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
 model.load_state_dict(checkpoint)
 model.eval()
 model.to(device)
@@ -40,7 +40,7 @@ model.to(device)
 if DEBUG>=2:
     print(f"Loading the PolicyValue Network in {time.time() - start}s")
 
-base_config = {"model": model, "device": device, "n_to_win":n_to_win}
+base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 
 if "random" in bot_type:
     bot = RandomMover(n_to_win=n_to_win)
@@ -50,8 +50,8 @@ if "minimax" in bot_type:
     bot = MinimaxWithAB(**base_config, max_search_vertex=max_vertex, max_depth=max_depth)
 if "dijkstra" in bot_type:
     bot = DijkstraAgent(**base_config, max_depth_per_search=max_depth, max_search_vertex=max_vertex)
-if "astar" in bot_type:
-    bot = AstartAgent(**base_config, max_depth=max_depth, max_vertexs=max_vertex)
+if "qstar" in bot_type:
+    bot = QstartAgent(**base_config, max_depth=max_depth, max_vertexs=max_vertex)
 
 if not is_gui:
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)

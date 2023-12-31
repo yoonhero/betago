@@ -12,7 +12,7 @@ import pylab
 
 from .board import GoMuKuBoard
 from .utils import open_record, RECORD_KEY, GAME_INFO_KEY
-from .errors import BotError, PosError
+from .errors import BotError, PosError, BoardError
 
 from ..helpers import DEBUG
 
@@ -144,7 +144,7 @@ class GomokuGUI:
             return True
         return False
 
-    def ai_turn(self):
+    def ai_turn(self, pos=None):
         # 1 => first, -1 => later
         if self.is_human_turn():
             return False
@@ -154,12 +154,13 @@ class GomokuGUI:
         # Request Another Response until no error occured by that move.
         while True:
             try:
-                next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first))
+                next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first), pos=pos)
                 break
             except PosError:
                 if DEBUG >= 3:
                     print("FATAL: Error during setting stone.")
         col, row = next_pos
+        self.bot.update_history(next_pos)
         self.values_for_plotting.append(1-winning_percentage)
 
         if DEBUG >= 2:
@@ -174,12 +175,12 @@ class GomokuGUI:
 
         # validate the human illegal movement
         if not self.is_human_turn():
-            self.ai_turn()
-            return
+            # self.ai_turn()
+            raise BoardError
         
         if self.update_board(col, row):
             if not self.with_human and not self.board.is_gameover():
-                self.ai_turn()  
+                self.ai_turn((col, row))  
 
     def initiate_game(self):
         pygame.time.Clock().tick(60)  

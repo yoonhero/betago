@@ -15,9 +15,11 @@ from .viz import tensor2gomuboard
 
 # Base Agent Structure
 class Agent():
-    def __init__(self, n_to_win):
+    def __init__(self, n_to_win, with_history, **kwargs):
         self.n_to_win = n_to_win
         self.turn = None
+        self.with_history = with_history
+        self.history = []
 
     def set_turn(self, turn):
         self.turn = turn
@@ -62,6 +64,11 @@ class Agent():
     def format_pos(self, indices, ncol):
         return [(idx%ncol, idx//ncol) for idx in indices]
 
+    def update_history(self, selected_pos):
+        if selected_pos not in self.history and selected_pos != None:
+            self.history.append(selected_pos)
+
+
 # Actually just stupid guy
 class RandomMover(Agent):
     def forward(self, board_state, **kwargs):
@@ -93,14 +100,39 @@ class PytorchAgent(Agent):
 
         return torch_state
 
+    def make_history_state(self, history, nrow, ncol, history_size=2):
+        prev_moves = history[-history_size:]
+        if prev_moves.__len__() < 2:
+            prev_moves = [None] * (2-prev_moves.__len__()) + prev_moves 
+        zero_board_state = np.zeros([history_size, nrow, ncol])
+        for i, prev_move in enumerate(prev_moves):
+            if prev_move != None:
+                col, row = prev_move
+                zero_board_state[i, col, row] = 1
+        
+        return torch.from_numpy(zero_board_state).to(torch.float32).to(self.device)
+
+    # State: Board State.
+    # History: Full History list of position.
     @torch.no_grad()
-    def model_predict(self, state):
+    def model_predict(self, state, history=None):
+        _, ncol, nrow = state.shape
+
         if isinstance(state, np.ndarray):
-            state = self.preprocess_state(state).unsqueeze(0)
+            state = self.preprocess_state(state)
+        
+        if self.with_history:
+            if history == None:
+                history = self.history
+            torch_history = self.make_history_state(history, nrow, ncol)
+            state = torch.cat([torch_history, state]).unsqueeze(0)
+        else:
+            state = state.unsqueeze(0)
+
         policy, value = self.model(state)
         # policy[:, :, 0], policy[:, :, 1] = policy[:, :, 1], policy[:, :,0]
         return policy, value
-    
+   
     def get_new_board_state(self, board_state, next_pos, my_turn):
         if self.validate(board_state, next_pos=next_pos):
             col, row = next_pos
@@ -108,15 +140,17 @@ class PytorchAgent(Agent):
             new_board_state[my_turn, row, col] = 1
             return new_board_state
     
-    def predict_next_pos(self, board_state, top_k, temperature=1, best=False):
+    def predict_next_pos(self, board_state, top_k, temperature=1, best=False, history=None):
         # assert top_k >= 3, "Please top_k is greater than 3."
         policy, value = self.model_predict(board_state)
 
         not_free_space = self.get_not_free_space(board_state=board_state)
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
         B, ncol, nrow = not_possible.shape
-        not_possible[not_possible!=0] = -float("inf")
-        policy += not_possible
+        # not_possible[not_possible!=0] = -float("inf")
+        not_possible = 1 - not_possible
+        # policy += not_possible
+        policy = policy * not_possible
 
         if DEBUG >= 3:
             img = tensor2gomuboard(policy[0], nrow, ncol, softmax=True, scale=10)
@@ -139,7 +173,10 @@ class PytorchAgent(Agent):
         # else:
             # return predicted_pos, value
 
-    def forward(self, board_state, top_k=1, **kwargs):
+    def forward(self, board_state, pos, top_k=1, **kwargs):
+        # Update the history
+        self.update_history(pos)
+
         next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
         return next_poses[0], value.cpu().item()
 
@@ -158,7 +195,7 @@ class MinimaxWithAB(PytorchAgent):
         return int(board_state[0].sum() == board_state[1].sum())
 
     # Search n highest value vertex with alpha-beta prunning until reaching the maximum depth. 
-    def minimax_search(self, parent_node: Node, game_tree: Graph, my_turn, strategy, board_state, depth, alpha, beta, root=False):
+    def minimax_search(self, parent_node: Node, game_tree: Graph, my_turn, strategy, board_state, depth, alpha, beta, history=None, root=False):
         heuristic_value = self.heuristic(board_state=board_state, my_turn=my_turn)
         if strategy == MinimaxWithAB.MAX: heuristic_value *= -1
         if heuristic_value != 0: return heuristic_value, None
@@ -179,8 +216,10 @@ class MinimaxWithAB(PytorchAgent):
 
             return value, None
 
+        if history == None:
+            history = self.history
         next_turn = 1 - my_turn
-        selected_poses, current_state_value = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex, temperature=0.1)
+        selected_poses, current_state_value = self.predict_next_pos(board_state=board_state, top_k=self.max_search_vertex, history=history, temperature=0.1)
         # current_state_value = current_state_value.cpu().item()
         # if strategy == MinimaxWithAB.MIN: current_state_value = 1 - current_state_value
 
@@ -193,6 +232,9 @@ class MinimaxWithAB(PytorchAgent):
         for next_pos in loader:
             cur_node = Node(f"{next_pos}")
             new_board_state = None
+            _history = deepcopy(history)
+            _history.append(next_pos)
+
             try:
                 new_board_state = self.get_new_board_state(board_state, next_pos, my_turn)
             except PosError:
@@ -200,7 +242,7 @@ class MinimaxWithAB(PytorchAgent):
                     print(f"There was error during getting the new board state. --- Pos {next_pos}")
                 continue
             
-            value, _ = self.minimax_search(parent_node=cur_node, game_tree=game_tree, my_turn=next_turn, strategy=new_strategy, board_state=new_board_state, depth=depth-1, alpha=alpha, beta=beta)
+            value, _ = self.minimax_search(parent_node=cur_node, game_tree=game_tree, my_turn=next_turn, strategy=new_strategy, board_state=new_board_state, history=_history, depth=depth-1, alpha=alpha, beta=beta)
             if DEBUG >= 3:
                 print(f"--- DEPTH {depth}  ---")
                 print(f"Action Value: {value} | Strategy: {strategy}")

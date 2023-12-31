@@ -29,6 +29,7 @@ for index, file_path in enumerate(tqdm(file_list)):
     lines = lines[1:]
 
     inputs, outputs = [], []
+    prev_pos = []
 
     to_viz = index % 1000 == 0
 
@@ -36,6 +37,8 @@ for index, file_path in enumerate(tqdm(file_list)):
     BLACK = 1
     WHITE = -1
     DRAW = 0
+
+    current_pos = []
 
     for i, line in enumerate(lines[1:]):
         if line.split(",").__len__() != 3:
@@ -60,8 +63,16 @@ for index, file_path in enumerate(tqdm(file_list)):
 #                input_rot = np.rot90(input, k=k)
 #                output_rot = np.rot90(output, k=k)
 #
+            if len(current_pos) >= 2:
+                prev_pos.append(np.stack(current_pos[-2:]))
+            elif len(current_pos) == 1:
+                prev_pos.append(np.stack([np.zeros([nrow, ncol]), current_pos[-1]]))
+            else:
+                prev_pos.append(np.zeros([2, nrow, ncol]))
+
             inputs.append(input)
             outputs.append(output)
+            current_pos.append(output)
 #
 #                inputs.append(np.fliplr(input_rot))
 #                outputs.append(np.fliplr(output_rot))
@@ -80,5 +91,5 @@ for index, file_path in enumerate(tqdm(file_list)):
     # print(inputs.shape)
     # print(np.ones_like(inputs).shape)
     # save dataset
-    ##np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results)
-    np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results)
+    #np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results)
+    np.savez_compressed(f"{output_path}/{index:05d}.npz", inputs=inputs, outputs=outputs, results=results, prev_pos=prev_pos)
