@@ -13,7 +13,7 @@ from gomu.algorithms import *
 from gomu.base import PolicyValueNet
 
 is_gui = os.getenv("GUI")
-device = os.getnev("DEVICE", "mps") # cuda | cpu | mps
+device = os.getenv("DEVICE", "mps") # cuda | cpu | mps
 bot_type = os.getenv("BOT", "random") # random | torch | minimax | dijkstra | qstar
 max_vertex = int(os.getenv("MAX_VERTEX", 3))
 max_depth = int(os.getenv("MAX_DEPTH", 3))

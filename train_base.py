@@ -105,7 +105,7 @@ class GOMUDataset(Dataset):
     def __len__(self):
         return self.total
 
-def get_loss(policy, value, GT, win):
+def get_loss(policy, value, GT, win, nrow, ncol):
     cross_loss = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
     bce = nn.BCELoss()
@@ -119,11 +119,12 @@ def get_loss(policy, value, GT, win):
     # mse_loss = mse(policy, GT)
     # policy_loss = alpha*cross_en_loss + (1-alpha)*mse_loss
     policy_loss = cross_en_loss
-    value_loss = bce(value, win)
+    # value_loss = bce(value, win)
+    value_loss = mse(value, win)
 
     return policy_loss+value_loss
 
-def training_one_epoch(loader, net, optimizer, training, epoch):
+def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol):
     _loss = []
     num_correct = 0
     num_samples = 0
@@ -133,7 +134,7 @@ def training_one_epoch(loader, net, optimizer, training, epoch):
             for step, (X, Y, win) in enumerate(pbar):
                 net.train()
                 policy, value = net(X)
-                loss = get_loss(policy, value, Y, win)
+                loss = get_loss(policy, value, Y, win, nrow, ncol)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -151,7 +152,7 @@ def training_one_epoch(loader, net, optimizer, training, epoch):
             net.eval()
             for (X, Y, win) in tqdm.tqdm(loader, desc="Testing..."):
                 policy, value = net(X)
-                output = get_loss(policy, value, Y, win)
+                output = get_loss(policy, value, Y, win, nrow, ncol)
                 _loss.append(output.item())
 
                 num_correct += ((value>0.5)==win).sum()
@@ -227,8 +228,8 @@ if __name__ == "__main__":
     test_losses = []
     nb_epoch = 50
     for epoch in range(nb_epoch):
-        train_loss, train_accuracy= training_one_epoch(train_loader, net, optimizer, True, epoch)
-        test_loss, test_accuracy = training_one_epoch(test_loader, net, optimizer, False, epoch)
+        train_loss, train_accuracy= training_one_epoch(train_loader, net, optimizer, True, epoch, nrow=nrow, ncol=ncol)
+        test_loss, test_accuracy = training_one_epoch(test_loader, net, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
         train_losses.append(train_loss)
         test_losses.append(test_losses)

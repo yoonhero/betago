@@ -101,16 +101,23 @@ class PytorchAgent(Agent):
         return torch_state
 
     def make_history_state(self, history, nrow, ncol, history_size=2):
-        prev_moves = history[-history_size:]
-        if prev_moves.__len__() < 2:
-            prev_moves = [None] * (2-prev_moves.__len__()) + prev_moves 
-        zero_board_state = np.zeros([history_size, nrow, ncol])
-        for i, prev_move in enumerate(prev_moves):
-            if prev_move != None:
-                col, row = prev_move
-                zero_board_state[i, col, row] = 1
-        
-        return torch.from_numpy(zero_board_state).to(torch.float32).to(self.device)
+        if not isinstance(history[0], list):
+            prev_moves = history[-history_size:]
+            if prev_moves.__len__() < 2:
+                prev_moves = [None] * (2-prev_moves.__len__()) + prev_moves 
+            zero_board_state = np.zeros([history_size, nrow, ncol])
+            for i, prev_move in enumerate(prev_moves):
+                if prev_move != None:
+                    col, row = prev_move
+                    zero_board_state[i, row, col] = 1
+            
+            return torch.from_numpy(zero_board_state).to(torch.float32).to(self.device)
+        else:
+            result = []
+            for hi in history:
+                tensor_hi = self.make_history_state(history=hi, nrow=nrow, ncol=ncol, history_size=history_size)
+                result.append(tensor_hi)
+            return torch.cat(result, dim=0).to(torch.float32).to(self.device)
 
     # State: Board State.
     # History: Full History list of position.
@@ -142,7 +149,7 @@ class PytorchAgent(Agent):
     
     def predict_next_pos(self, board_state, top_k, temperature=1, best=False, history=None):
         # assert top_k >= 3, "Please top_k is greater than 3."
-        policy, value = self.model_predict(board_state)
+        policy, value = self.model_predict(board_state, history=history)
 
         not_free_space = self.get_not_free_space(board_state=board_state)
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
@@ -150,13 +157,13 @@ class PytorchAgent(Agent):
         # not_possible[not_possible!=0] = -float("inf")
         not_possible = 1 - not_possible
         # policy += not_possible
-        policy = policy * not_possible
 
         if DEBUG >= 3:
             img = tensor2gomuboard(policy[0], nrow, ncol, softmax=True, scale=10)
             img.show()
 
         policy = policy.view(B, -1).softmax(-1)
+        policy = policy * not_possible.view(B, -1)
             
         # indices = torch.arange(policy.shape[-1]).repeat(B, 1)
         if best:
@@ -173,10 +180,7 @@ class PytorchAgent(Agent):
         # else:
             # return predicted_pos, value
 
-    def forward(self, board_state, pos, top_k=1, **kwargs):
-        # Update the history
-        self.update_history(pos)
-
+    def forward(self, board_state, top_k=1, **kwargs):
         next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
         return next_poses[0], value.cpu().item()
 
@@ -276,7 +280,7 @@ class MinimaxWithAB(PytorchAgent):
 
         return cur_value, origin
 
-    def forward(self, board_state, turn):
+    def forward(self, board_state, turn, **kwargs):
         node = Node("Root")
         game_tree = Graph()
         # Agent wants to maximize the value he might receive.

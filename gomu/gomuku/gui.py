@@ -154,7 +154,8 @@ class GomokuGUI:
         # Request Another Response until no error occured by that move.
         while True:
             try:
-                next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first), pos=pos)
+                self.bot.update_history(pos)
+                next_pos, winning_percentage = self.bot(board_state, turn=int(self.is_human_first))
                 break
             except PosError:
                 if DEBUG >= 3:
