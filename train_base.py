@@ -106,16 +106,18 @@ class GOMUDataset(Dataset):
         return self.total
 
 def get_loss(policy, value, GT, win, nrow, ncol):
-    cross_loss = nn.CrossEntropyLoss()
+    # cross_loss = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
     bce = nn.BCELoss()
 
     ypred = policy.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
+    ypred = ypred.softmax(1)
     # flatten_pred = einops.rearrange(policy, "b c h w -> b (c h w)")
     # y = einops.rearrange(GT, "b c h w -> b (c h w)")
     y = GT.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
-    y = y.argmax(-1)
-    cross_en_loss = cross_loss(ypred, y)
+    # y = y.argmax(-1)
+    # cross_en_loss = cross_loss(ypred, y)``
+    cross_en_loss = -(y * torch.log(ypred)).sum(1).mean()
     # mse_loss = mse(policy, GT)
     # policy_loss = alpha*cross_en_loss + (1-alpha)*mse_loss
     policy_loss = cross_en_loss
@@ -124,7 +126,20 @@ def get_loss(policy, value, GT, win, nrow, ncol):
 
     return policy_loss+value_loss
 
-def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol):
+def save_result(x, y, policy, save_base_path, nrow, ncol, epoch, train=True):
+    pred_pos_pil = tensor2gomuboard(policy, nrow, ncol, softmax=True, scale=10)
+    concatenated = x[0]-x[1]
+    ground_true_pil = tensor2gomuboard(2*(y!=0)+concatenated, nrow, ncol)
+    if train:
+        eval_result_path = save_base_path / f"trainresults/{epoch}-pred.png"
+        eval_gt_path = save_base_path / f"trainresults/{epoch}-gt.png"
+    else:
+        eval_result_path = save_base_path / f"evalresults/{epoch}-pred.png"
+        eval_gt_path = save_base_path / f"evalresults/{epoch}-gt.png"
+    pred_pos_pil.save(eval_result_path)
+    ground_true_pil.save(eval_gt_path)
+
+def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save_base_path):
     _loss = []
     num_correct = 0
     num_samples = 0
@@ -146,6 +161,8 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol):
                 
                 num_correct += ((value>0.5)==win).sum()
                 num_samples += value.size(0)
+            
+            save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
 
     if not training:
         with torch.no_grad():
@@ -158,14 +175,8 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol):
                 num_correct += ((value>0.5)==win).sum()
                 num_samples += value.size(0)
 
-            pred_pos_pil = tensor2gomuboard(policy[0], nrow, ncol, softmax=True, scale=10)
-            concatenated = X[0][0]-X[0][1]
-            ground_true_pil = tensor2gomuboard(2*Y[0]+concatenated, nrow, ncol)
-            eval_result_path = save_base_path / f"evalresults/{epoch}-pred.png"
-            eval_gt_path = save_base_path / f"evalresults/{epoch}-gt.png"
-            pred_pos_pil.save(eval_result_path)
-            ground_true_pil.save(eval_gt_path)
-            
+            save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, train=False, epoch=epoch)
+
     return sum(_loss) / len(_loss), num_correct / num_samples
 
 
@@ -213,6 +224,7 @@ if __name__ == "__main__":
     save_base_path.mkdir(exist_ok=True)
     (save_base_path / "ckpt").mkdir(exist_ok=True)
     (save_base_path / "evalresults").mkdir(exist_ok=True)
+    (save_base_path / "trainresults").mkdir(exist_ok=True)
 
     grad_clip=2
 
@@ -228,8 +240,8 @@ if __name__ == "__main__":
     test_losses = []
     nb_epoch = 50
     for epoch in range(nb_epoch):
-        train_loss, train_accuracy= training_one_epoch(train_loader, net, optimizer, True, epoch, nrow=nrow, ncol=ncol)
-        test_loss, test_accuracy = training_one_epoch(test_loader, net, optimizer, False, epoch, nrow=nrow, ncol=ncol)
+        train_loss, train_accuracy= training_one_epoch(train_loader, net, optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+        test_loss, test_accuracy = training_one_epoch(test_loader, net, optimizer, False, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
 
         train_losses.append(train_loss)
         test_losses.append(test_losses)

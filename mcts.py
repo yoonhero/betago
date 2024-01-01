@@ -26,9 +26,12 @@ from train_base import get_loss, GOMUDataset, training_one_epoch
 simulation_no = int(os.getenv("MAX", 100))
 max_vertex = int(os.getenv("MAX_VERTEX", 5))
 save_term = int(os.getenv("SAVE_TERM", 1))
-
+log = bool(int(os.getenv("LOG", 0)))
 
 class GGraph(Graph):
+    def init(self):
+        self._data = {}
+        self.graph = defaultdict(list)
     def root(self, root_node): self._data[root_node.id] = root_node
     @property
     def data(self): return self._data
@@ -51,13 +54,18 @@ class MCTSNode():
         self.id = str(uuid.uuid4())
 
         self.turn = turn
+    
+    def init(self):
+        self.childrens = []
+        self._results = defaultdict(int)
+        self._untried_actions = self.untried_actions()
 
     def untried_actions(self):
         _untried_actions = self.get_legal_actions()
         return _untried_actions
 
     def get_legal_actions(self):
-        next_poses, _ = agent.predict_next_pos(board_state=self.state, top_k=5)
+        next_poses, _ = agent.predict_next_pos(board_state=self.state, top_k=max_vertex)
         return next_poses
 
     def q(self):
@@ -104,7 +112,8 @@ class MCTSNode():
             empty_spaces = (current_rollout_state.sum(0)!=1).sum()
             top_k = max_vertex if empty_spaces > max_vertex else empty_spaces
             if top_k == 0:
-                print(current_rollout_state)
+                if DEBUG >= 2:
+                    print(current_rollout_state)
                 return 1/2
             possible_moves, _ = agent.predict_next_pos(board_state=current_rollout_state, top_k=top_k)
 
@@ -194,7 +203,7 @@ root = MCTSNode(state=zero_state, turn=0, parent=None)
 mcts_graph.root(root_node=root)
 
 # Training Hypterparameters
-batch_size = 256
+batch_size = 12
 learning_rate = 0.001
 weight_decay = 0.1
 optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -205,15 +214,18 @@ save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
 save_base_path.mkdir(exist_ok=True)
 (save_base_path / "ckpt").mkdir(exist_ok=True)
 (save_base_path / "evalresults").mkdir(exist_ok=True)
+(save_base_path / "trainresults").mkdir(exist_ok=True)
 
 # test_dataset = GOMUDataset(50, device=device)
 # test_loader = torch.utils.data.DataLoader(test_dataset, batch_size, shuffle=False)
 
 epoch = 0
+max_turn = 50
 
-run = wandb.init(
-    project="AlphaGomu"
-)
+if log:
+    run = wandb.init(
+        project="AlphaGomu"
+    )
 
 class TempDataset(torch.utils.data.Dataset):
     def __init__(self, data):
@@ -242,49 +254,56 @@ class TempDataset(torch.utils.data.Dataset):
 
 while True:
     epoch += 1
-    # initialize the udpated
-    updated = []
+    mcts_graph.init()
+    root.init()
+    mcts_graph.root(root_node=root)
 
-    print("Simulating....")
-    root.simulate()
+    for turn in range(max_turn):
+        # initialize the udpated
+        updated = []
 
-    if DEBUG >= 3:
-        mcts_graph.viz(root).view()
+        print("Simulating....")
+        root.simulate()
 
-    train_data = []
-    real_updated = set(updated)
-    # (State, Next Action Pi Distribution, expected value=.q)
-    for node_key in real_updated:
-        cur_node = mcts_graph.data[node_key]
-        tensor_state = torch.tensor(cur_node.state)
-        turn = cur_node.turn
-        if cur_node.childrens.__len__() == 0:
-            continue
-        # next_actions = [(children.next_pos, 1-children.q()/children.n()) for children in cur_node.childrens]
-        next_actions = [(children.action, children.n()) for children in cur_node.childrens]
-        pi = torch.zeros((1, nrow, ncol))
-        # Is V=r+gammaQ?
-        for next_action_data in next_actions:
-            next_action, expected_value = next_action_data
-            col, row = next_action
-            pi[0, row, col] = expected_value
-        # Q normalization
-        pi = pi / pi.sum()
-        expected_value = torch.tensor([cur_node.q()/cur_node.n()])
-        item = (tensor_state, pi, expected_value)
-        train_data.append(item)
-    
-    train_loader = torch.utils.data.DataLoader(TempDataset(train_data), batch_size, shuffle=True)
+        if DEBUG >= 3:
+            mcts_graph.viz(root).view()
 
-    model.train()
-    train_loss, train_accuracy = training_one_epoch(train_loader, model, optimizer, True, epoch, nrow=nrow, ncol=ncol)
-    # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
-    
-    run.log({"train/loss": train_loss, "train/acc": train_accuracy})
+        train_data = []
+        real_updated = set(updated)
+        print(f"Total Train Data: {len(real_updated)}")
+        # (State, Next Action Pi Distribution, expected value=.q)
+        for node_key in real_updated:
+            cur_node = mcts_graph.data[node_key]
+            tensor_state = torch.tensor(cur_node.state)
+            turn = cur_node.turn
+            if cur_node.childrens.__len__() == 0:
+                continue
+            # next_actions = [(children.next_pos, 1-children.q()/children.n()) for children in cur_node.childrens]
+            next_actions = [(children.action, children.n()) for children in cur_node.childrens]
+            pi = torch.zeros((1, nrow, ncol))
+            # Is V=r+gammaQ?
+            for next_action_data in next_actions:
+                next_action, expected_value = next_action_data
+                col, row = next_action
+                pi[0, row, col] = expected_value
+            # Q normalization
+            pi = pi / pi.sum()
+            expected_value = torch.tensor([cur_node.q()/cur_node.n()])
+            item = (tensor_state, pi, expected_value)
+            train_data.append(item)
+        
+        train_loader = torch.utils.data.DataLoader(TempDataset(train_data), batch_size, shuffle=True)
 
-    if (epoch+1) % save_term == 0:
-        save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
-        torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+        model.train()
+        train_loss, train_accuracy = training_one_epoch(train_loader, model, optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+        # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
-    print(f"{epoch}th EPOCH DONE!! ---- Train: {train_loss}")
+        if log:
+            run.log({"train/loss": train_loss, "train/acc": train_accuracy})
+
+        if (epoch+1) % save_term == 0:
+            save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
+            torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+
+        print(f"{epoch}/{turn}th EPOCH DONE!! ---- Train: {train_loss}")
 

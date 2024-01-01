@@ -158,7 +158,7 @@ class PytorchAgent(Agent):
         not_possible = 1 - not_possible
         # policy += not_possible
 
-        if DEBUG >= 3:
+        if DEBUG >= 4:
             img = tensor2gomuboard(policy[0], nrow, ncol, softmax=True, scale=10)
             img.show()
 
