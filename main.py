@@ -23,22 +23,13 @@ first_channel = int(os.getenv("FIRST_CHAN", 2)) # default is 2 | history_size + 
 nrow = 20
 ncol = 20
 n_to_win = 5
+game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 # Load Agent
 cpk_path = os.getenv("LOAD", "./models/1224-256.pkl")
-if device == "cpu" or device == "mps":
-    checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
-else: checkpoint = torch.load(cpk_path)["model"]
-channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
-with_history = channels[0] != 2
-start = time.time()
-model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
-model.load_state_dict(checkpoint)
-model.eval()
-model.to(device)
-
-if DEBUG>=2:
-    print(f"Loading the PolicyValue Network in {time.time() - start}s")
+first_channel = int(os.getenv("FIRST_CHAN", 2))
+with_history = first_channel != 2
+model = load_base(game_info=game_info, device=device, cpk_path=cpk_path)
 
 base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 

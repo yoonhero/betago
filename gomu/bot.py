@@ -1,17 +1,34 @@
 from typing import Any
 import numpy as np
 import tqdm
+import time
 from copy import deepcopy
 
 import torch
 import torch.nn as nn
 from einops import rearrange
 
-from .helpers import DEBUG
+from .helpers import DEBUG, GameInfo
 from .gomuku.board import GoMuKuBoard
 from .game_tree import Node, Graph
 from .gomuku.errors import PosError
 from .viz import tensor2gomuboard
+from .base import PolicyValueNet
+
+def load_base(game_info: GameInfo, first_channel=2, device="mps", cpk_path="./models/1224-256.pkl"):
+    nrow, ncol = game_info.nrow, game_info.ncol
+    if device == "cpu" or device == "mps":
+        checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
+    else: checkpoint = torch.load(cpk_path)["model"]
+    channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
+    start = time.time()
+    model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
+    model.load_state_dict(checkpoint)
+    model.eval()
+    model.to(device)
+    if DEBUG >= 2:
+        print(f"Loading the PolicyValue Network in {time.time() - start}s")
+    return model
 
 # Base Agent Structure
 class Agent():
