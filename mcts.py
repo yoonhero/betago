@@ -27,12 +27,16 @@ from elo import ELO
 from shared_adam import SharedAdam
 from data_utils import TempDataset
 
+mp.set_start_method('spawn')
+print(mp.get_start_method())
+
 simulation_no = int(os.getenv("MAX", 100))
 max_vertex = int(os.getenv("MAX_VERTEX", 5))
 save_term = int(os.getenv("SAVE_TERM", 1))
 log = bool(int(os.getenv("LOG", 0)))
 eval_term = int(os.getenv("EVAL_TERM", 1))
 is_mp = bool(int(os.getenv("MP", 0)))
+device = os.getenv("DEVICE", "cpu")
 UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
 
@@ -210,28 +214,21 @@ game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 channels = [2, 64, 128, 256, 128, 64, 32, 1]
 dropout = 0.5
 
-device = "cpu"
-
 # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
 # model.to(device)
-
 model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
 model.share_memory()
 
 agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
 
-# mcts_graph = GGraph()
-
 zero_state = np.zeros((2, nrow, ncol))
-# root = MCTSNode(state=zero_state, turn=0, parent=None)
-# mcts_graph.root(root_node=root)
 
-# Training Hypterparameters
+# Training Hyperparameters
 batch_size = 256
-learning_rate = 1e-4
+learning_rate = 5e-4
 weight_decay = 0.1
 
-optimizer_ckp = torch.load("./models/1224-256.pkl")["optim"]
+optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
 optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
 optimizer.load_state_dict(optimizer_ckp)
 total_parameters = get_total_parameters(model)
@@ -262,8 +259,8 @@ def get_train_data(updated, mcts_graph):
         turn = cur_node.turn
         if cur_node.childrens.__len__() == 0:
             continue
-        # next_actions = [(children.action, 1-children.q()/children.n()) for children in cur_node.childrens]
-        next_actions = [(children.action, children.n()) for children in cur_node.childrens]
+        next_actions = [(children.action, 1-children.q()/children.n()) for children in cur_node.childrens]
+        # next_actions = [(children.action, children.n()) for children in cur_node.childrens]
         pi = torch.zeros((1, nrow, ncol))
         # Is V=r+gammaQ?
         for next_action_data in next_actions:
@@ -360,7 +357,8 @@ class Worker(mp.Process):
 
 def main():
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
-    total_workers = mp.cpu_count()-1
+    # total_workers = mp.cpu_count()-1
+    total_workers = 12
     workers = [Worker(gnet=model, opt=optimizer, global_elo=global_elo, name=i, res_queue=res_queue) for i in range(total_workers)]
     print(f"Total {len(workers)} workers.")
     [w.start() for w in workers]
