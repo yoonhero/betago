@@ -421,6 +421,8 @@ if __name__ == "__main__":
         logger = wandb.init(
             project="AlphaGomu"
         )
+    else:
+        logger = None
 
     if is_mp:
         main(logger)
