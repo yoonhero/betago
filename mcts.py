@@ -279,12 +279,14 @@ def get_train_data(updated, mcts_graph):
     return train_data
 
 def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, scenario_turn, name):
+    print(f"Update {name}")
     train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size=batch_size, shuffle=True)
     
     lnet.train()
     gnet.train()
+    opt.zero_grad()
 
-    def shared_training_one_epoch(loader, net, optimizer, epoch, nrow, ncol, save_base_path):
+    def shared_training_one_epoch(loader, net, epoch, nrow, ncol, save_base_path):
         _loss = []
         num_correct = 0
         num_samples = 0
@@ -295,21 +297,20 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
                 policy, value = net(X)
                 loss = get_loss(policy, value, Y, win, nrow, ncol)
 
-                optimizer.zero_grad()
                 loss.backward()
                 _loss.append(loss.item()) 
 
                 pbar.set_description(f"{epoch}/{step}")
                 pbar.set_postfix(loss=_loss[-1])
                 
-                num_correct += ((value>0.5)==win).sum()
+                num_correct += ((value>0.5)==(win!=0)).sum() / win.sum() * value.size(0)
                 num_samples += value.size(0)
             
             save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
         
         return sum(_loss) / len(_loss), num_correct / num_samples
 
-    training_loss, training_acc = shared_training_one_epoch(train_loader, lnet, opt, total_step, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+    training_loss, training_acc = shared_training_one_epoch(train_loader, lnet, total_step, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
 
     for lp, gp in zip(lnet.parameters(), gnet.parameters()):
         gp._grad = lp.grad
@@ -318,13 +319,9 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
     lnet.load_state_dict(gnet.state_dict())
 
     # if (scenario_turn+1) % eval_term == 0:
-    g_elo.value = ELO(model_elo=g_elo.value, base_elo=500, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
-    
-    if (scenario_turn+1) % save_term == 0:
-        save_path = save_base_path / f"ckpt/epoch-{total_step}-{scenario_turn}-{name}.pkl"
-        torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+    g_elo.value = ELO(model_elo=g_elo.value, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
 
-    res_queue.put((training_loss, training_acc, g_elo.value))
+    res_queue.put((training_loss, training_acc, g_elo.value, total_step, scenario_turn, name))
     return
 
 class Worker(mp.Process):
@@ -355,8 +352,7 @@ class Worker(mp.Process):
                 train_data = get_train_data(updated, mcts_graph=self.mcts_graph)
 
                 # update global and assign to local net
-                if scenario_turn % UPDATE_GLOBAL_ITER == 0:  
-                    push_and_pull(train_data, self.opt, self.lnet, self.gnet, self.res_queue, self.g_elo, total_step, scenario_turn, self.name)
+                push_and_pull(train_data, self.opt, self.lnet, self.gnet, self.res_queue, self.g_elo, total_step, scenario_turn, self.name)
 
             total_step += 1
 
@@ -364,7 +360,7 @@ class Worker(mp.Process):
 
 def main():
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
-    total_workers = mp.cpu_count()
+    total_workers = mp.cpu_count()-1
     workers = [Worker(gnet=model, opt=optimizer, global_elo=global_elo, name=i, res_queue=res_queue) for i in range(total_workers)]
     print(f"Total {len(workers)} workers.")
     [w.start() for w in workers]
@@ -374,7 +370,12 @@ def main():
         if r == None:
             break    
         
-        train_loss, train_accuracy, current_elo = r
+        train_loss, train_accuracy, current_elo, total_step, scenario_turn, name  = r
+
+        if (scenario_turn+1) % save_term == 0:
+            save_path = save_base_path / f"ckpt/epoch-{total_step}-{scenario_turn}-{name}.pkl"
+            print(f"Save in {save_path}")
+            torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
 
         if log:    
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})

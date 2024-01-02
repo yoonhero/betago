@@ -29,8 +29,9 @@ def ELO(model_elo, base_elo, model, total_play, game_info: GameInfo, device, k=1
             else:
                 agent: PytorchAgent = base_agent
 
-            next_pos, value = agent(board.board)
-            col, row = next_pos
+            # Stochastical Variation.
+            next_pos, value = agent.predict_next_pos(board.board, top_k=3, best=True)
+            col, row = next_pos[0]
             board.set(col, row)
             
             base_agent.update_history(next_pos)
@@ -55,4 +56,12 @@ def ELO(model_elo, base_elo, model, total_play, game_info: GameInfo, device, k=1
         print(f"Final ELO {elo}")
 
     return elo
+    
+
+if __name__ == "__main__":
+    device = "cpu"
+    game_info = GameInfo(nrow=20, ncol=20, n_to_win=5)
+    base_model = load_base(game_info=game_info, device=device)
+
+    print(ELO(500, 500, base_model, 20, game_info=game_info, device=device))
     
