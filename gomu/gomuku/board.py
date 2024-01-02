@@ -74,7 +74,7 @@ class GoMuKuBoard():
         return tmp[row][col] == 0
 
     def total_empty(self):
-        return self._board.count(0)
+        return self.nrow * self.ncol - self._board.sum()
 
     # pos = (x, y) coordinate
     def set(self, col, row):
@@ -104,7 +104,7 @@ class GoMuKuBoard():
         return GoMuKuBoard.is_game_done(board_state=self._board, turn=turn, n_to_win=self.n_to_win)
         
     def is_draw(self):
-        return self.ply >= self.nrow * self.ncol
+        return self.total_empty() == 0
 
     @staticmethod
     def viz(board_state):

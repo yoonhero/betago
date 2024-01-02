@@ -13,6 +13,7 @@ from pathlib import Path
 import torch
 import numpy as np
 import torch.optim as optim
+import torch.multiprocessing as mp
 from einops import rearrange
 
 from gomu.gomuku import board
@@ -21,12 +22,19 @@ from gomu.bot import *
 from gomu.game_tree import Graph
 from gomu.helpers import DEBUG
 
-from train_base import get_loss, GOMUDataset, training_one_epoch
+from train_base import get_loss, GOMUDataset, training_one_epoch, save_result
+from elo import ELO
+from shared_adam import SharedAdam
+from data_utils import TempDataset
 
 simulation_no = int(os.getenv("MAX", 100))
 max_vertex = int(os.getenv("MAX_VERTEX", 5))
 save_term = int(os.getenv("SAVE_TERM", 1))
 log = bool(int(os.getenv("LOG", 0)))
+eval_term = int(os.getenv("EVAL_TERM", 1))
+is_mp = bool(int(os.getenv("MP", 0)))
+UPDATE_GLOBAL_ITER = 2
+TOTAL_ELO_SIM = 50
 
 class GGraph(Graph):
     def init(self):
@@ -37,7 +45,7 @@ class GGraph(Graph):
     def data(self): return self._data
 
 class MCTSNode():
-    def __init__(self, state, turn, action=None, parent=None):
+    def __init__(self, state, turn, mcts_graph, action=None, parent=None, updated=None):
         self.state = state
         self.parent = parent
         self.childrens = []
@@ -52,21 +60,35 @@ class MCTSNode():
         self._untried_actions = None
         self._untried_actions = self.untried_actions()
         self.id = str(uuid.uuid4())
+        self.mcts_graph = mcts_graph
 
         self.turn = turn
+        if updated == None:
+            self.updated = []
+        else:
+            self.updated = updated
     
     def init(self):
         self.childrens = []
         self._results = defaultdict(int)
         self._untried_actions = self.untried_actions()
+        self.updated = []
 
     def untried_actions(self):
         _untried_actions = self.get_legal_actions()
         return _untried_actions
 
+    def maximum_top_k(self, state):
+        empty_spaces = (state.sum(0)!=1).sum()
+        top_k = max_vertex if empty_spaces > max_vertex else empty_spaces
+        return top_k
+
     def get_legal_actions(self):
-        next_poses, _ = agent.predict_next_pos(board_state=self.state, top_k=max_vertex)
-        return next_poses
+        top_k = self.maximum_top_k(self.state)
+        if top_k != 0:
+            next_poses, _ = agent.predict_next_pos(board_state=self.state, top_k=top_k)
+            return next_poses
+        return []
 
     def q(self):
         win = self._results[1]
@@ -79,10 +101,10 @@ class MCTSNode():
     def expand(self):
         action = self._untried_actions.pop()
         next_state = agent.get_new_board_state(board_state=self.state, next_pos=action, my_turn=self.turn)
-        child_node = MCTSNode(next_state, turn=1-self.turn, parent=self, action=action)
+        child_node = MCTSNode(next_state, turn=1-self.turn, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph)
         self.childrens.append(child_node)
 
-        mcts_graph.addEdge(self, child_node)
+        self.mcts_graph.addEdge(self, child_node)
 
         return child_node
 
@@ -109,8 +131,7 @@ class MCTSNode():
         while not GoMuKuBoard.is_game_done(board_state=current_rollout_state, turn=turn, n_to_win=n_to_win):
             depth += 1
             turn = 1 - turn
-            empty_spaces = (current_rollout_state.sum(0)!=1).sum()
-            top_k = max_vertex if empty_spaces > max_vertex else empty_spaces
+            top_k = self.maximum_top_k(current_rollout_state)
             if top_k == 0:
                 if DEBUG >= 2:
                     print(current_rollout_state)
@@ -140,7 +161,7 @@ class MCTSNode():
             self._results[-1] += 0.5
 
         # Add the node for training nn.
-        updated.append(self.id)
+        self.updated.append(self.id)
 
         if self.parent:
             self.parent.backpropagate(-result)
@@ -182,31 +203,37 @@ class MCTSNode():
         return f"MCTS(root)"
 
 
-nrow = 10
-ncol = 10
+nrow = 20
+ncol = 20
 n_to_win = 5
+game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 channels = [2, 64, 128, 256, 128, 64, 32, 1]
 dropout = 0.5
 
-device = "mps"
+device = "cpu"
 
-model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
-model.to(device)
+# model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
+# model.to(device)
+
+model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+model.share_memory()
 
 agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
 
-updated = []
-mcts_graph = GGraph()
+# mcts_graph = GGraph()
 
 zero_state = np.zeros((2, nrow, ncol))
-root = MCTSNode(state=zero_state, turn=0, parent=None)
-mcts_graph.root(root_node=root)
+# root = MCTSNode(state=zero_state, turn=0, parent=None)
+# mcts_graph.root(root_node=root)
 
 # Training Hypterparameters
-batch_size = 12
-learning_rate = 0.001
+batch_size = 256
+learning_rate = 1e-4
 weight_decay = 0.1
-optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+optimizer_ckp = torch.load("./models/1224-256.pkl")["optim"]
+optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
+optimizer.load_state_dict(optimizer_ckp)
 total_parameters = get_total_parameters(model)
 print(total_parameters)
 
@@ -216,94 +243,188 @@ save_base_path.mkdir(exist_ok=True)
 (save_base_path / "evalresults").mkdir(exist_ok=True)
 (save_base_path / "trainresults").mkdir(exist_ok=True)
 
-# test_dataset = GOMUDataset(50, device=device)
-# test_loader = torch.utils.data.DataLoader(test_dataset, batch_size, shuffle=False)
-
-epoch = 0
 max_turn = 50
+model_elo = 100
+base_elo = 500
 
 if log:
-    run = wandb.init(
+    logger = wandb.init(
         project="AlphaGomu"
     )
 
-class TempDataset(torch.utils.data.Dataset):
-    def __init__(self, data):
-        self.data = data
-        self.total = len(data)
-    def __getitem__(self, idx):
-        state, pi, value = self.data[idx]
+def get_train_data(updated, mcts_graph):
+    train_data = []
+    real_updated = set(updated)
+    # (State, Next Action Pi Distribution, expected value=.q)
+    for node_key in real_updated:
+        cur_node = mcts_graph.data[node_key]
+        tensor_state = torch.tensor(cur_node.state)
+        turn = cur_node.turn
+        if cur_node.childrens.__len__() == 0:
+            continue
+        # next_actions = [(children.action, 1-children.q()/children.n()) for children in cur_node.childrens]
+        next_actions = [(children.action, children.n()) for children in cur_node.childrens]
+        pi = torch.zeros((1, nrow, ncol))
+        # Is V=r+gammaQ?
+        for next_action_data in next_actions:
+            next_action, expected_value = next_action_data
+            col, row = next_action
+            pi[0, row, col] = expected_value
+        # Q normalization
+        pi = pi / pi.sum()
+        expected_value = torch.tensor([cur_node.q()/cur_node.n()])
+        item = (tensor_state, pi, expected_value)
+        train_data.append(item)
+    print(f"Total Train Data Size: {len(train_data)}")
+    return train_data
 
-        total_BLACK = torch.sum(state[0])
-        total_WHITE = torch.sum(state[1])
-        if total_BLACK != total_WHITE:
-            state = torch.roll(state, 1, 0)
+def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, scenario_turn, name):
+    train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size=batch_size, shuffle=True)
+    
+    lnet.train()
+    gnet.train()
 
-        # Augmentation
-        # roll? flip?
-        random_event = random.choice([1, 2, 3, 4])
-        state = torch.rot90(state, random_event, dims=[1, 2])
-        pi = torch.rot90(pi, random_event, dims=[1, 2])
+    def shared_training_one_epoch(loader, net, optimizer, epoch, nrow, ncol, save_base_path):
+        _loss = []
+        num_correct = 0
+        num_samples = 0
 
-        state = state.to(torch.float32).to(device)
-        pi = pi.to(torch.float32).to(device)
-        value = value.to(torch.float32).to(device)
-        return state, pi, value
-    def __len__(self):
-        return self.total
+        with tqdm.tqdm(loader) as pbar:
+            for step, (X, Y, win) in enumerate(pbar):
+                net.train()
+                policy, value = net(X)
+                loss = get_loss(policy, value, Y, win, nrow, ncol)
 
-while True:
-    epoch += 1
-    mcts_graph.init()
-    root.init()
+                optimizer.zero_grad()
+                loss.backward()
+                _loss.append(loss.item()) 
+
+                pbar.set_description(f"{epoch}/{step}")
+                pbar.set_postfix(loss=_loss[-1])
+                
+                num_correct += ((value>0.5)==win).sum()
+                num_samples += value.size(0)
+            
+            save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
+        
+        return sum(_loss) / len(_loss), num_correct / num_samples
+
+    training_loss, training_acc = shared_training_one_epoch(train_loader, lnet, opt, total_step, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+
+    for lp, gp in zip(lnet.parameters(), gnet.parameters()):
+        gp._grad = lp.grad
+    opt.step()
+
+    lnet.load_state_dict(gnet.state_dict())
+
+    # if (scenario_turn+1) % eval_term == 0:
+    g_elo.value = ELO(model_elo=g_elo.value, base_elo=500, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
+    
+    if (scenario_turn+1) % save_term == 0:
+        save_path = save_base_path / f"ckpt/epoch-{total_step}-{scenario_turn}-{name}.pkl"
+        torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+
+    res_queue.put((training_loss, training_acc, g_elo.value))
+    return
+
+class Worker(mp.Process):
+    def __init__(self, gnet, opt, global_elo, res_queue, name):
+        super(Worker, self).__init__()
+        self.name = 'w%02i' % name
+        self.g_elo, self.res_queue = global_elo, res_queue
+        self.gnet, self.opt = gnet, opt
+
+        self.lnet = load_base(game_info=game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+        self.updated = []
+        self.mcts_graph = GGraph()
+        self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph)
+        self.mcts_graph.root(root_node=self.root_node)
+
+    def run(self):
+        total_step = 1
+        while True:
+            self.mcts_graph.init()
+            self.root_node.init()
+            self.mcts_graph.root(root_node=self.root_node)
+            
+            for scenario_turn in range(max_turn):
+                print(f"Simulating {self.name}")
+                self.root_node.simulate()
+
+                updated = self.root_node.updated
+                train_data = get_train_data(updated, mcts_graph=self.mcts_graph)
+
+                # update global and assign to local net
+                if scenario_turn % UPDATE_GLOBAL_ITER == 0:  
+                    push_and_pull(train_data, self.opt, self.lnet, self.gnet, self.res_queue, self.g_elo, total_step, scenario_turn, self.name)
+
+            total_step += 1
+
+        self.res_queue.put(None)
+
+def main():
+    global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
+    total_workers = mp.cpu_count()
+    workers = [Worker(gnet=model, opt=optimizer, global_elo=global_elo, name=i, res_queue=res_queue) for i in range(total_workers)]
+    print(f"Total {len(workers)} workers.")
+    [w.start() for w in workers]
+    while True:
+        r = res_queue.get()
+
+        if r == None:
+            break    
+        
+        train_loss, train_accuracy, current_elo = r
+
+        if log:    
+            logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
+    [w.join() for w in workers]
+
+def normal_train():
+    global model_elo, base_elo
+    epoch = 0
+
+    mcts_graph = GGraph()
+    root = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=mcts_graph)
     mcts_graph.root(root_node=root)
 
-    for turn in range(max_turn):
-        # initialize the udpated
-        updated = []
+    while True:
+        epoch += 1
+        mcts_graph.init()
+        root.init()
+        mcts_graph.root(root_node=root)
 
-        print("Simulating....")
-        root.simulate()
+        for scenario_turn in range(max_turn):
+            print("Simulating....")
+            root.simulate()
 
-        if DEBUG >= 3:
-            mcts_graph.viz(root).view()
+            if DEBUG >= 3:
+                mcts_graph.viz(root).view()
 
-        train_data = []
-        real_updated = set(updated)
-        print(f"Total Train Data: {len(real_updated)}")
-        # (State, Next Action Pi Distribution, expected value=.q)
-        for node_key in real_updated:
-            cur_node = mcts_graph.data[node_key]
-            tensor_state = torch.tensor(cur_node.state)
-            turn = cur_node.turn
-            if cur_node.childrens.__len__() == 0:
-                continue
-            # next_actions = [(children.next_pos, 1-children.q()/children.n()) for children in cur_node.childrens]
-            next_actions = [(children.action, children.n()) for children in cur_node.childrens]
-            pi = torch.zeros((1, nrow, ncol))
-            # Is V=r+gammaQ?
-            for next_action_data in next_actions:
-                next_action, expected_value = next_action_data
-                col, row = next_action
-                pi[0, row, col] = expected_value
-            # Q normalization
-            pi = pi / pi.sum()
-            expected_value = torch.tensor([cur_node.q()/cur_node.n()])
-            item = (tensor_state, pi, expected_value)
-            train_data.append(item)
-        
-        train_loader = torch.utils.data.DataLoader(TempDataset(train_data), batch_size, shuffle=True)
+            train_data = get_train_data(updated=root.updated, mcts_graph=mcts_graph)
+            
+            train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size, shuffle=True)
 
-        model.train()
-        train_loss, train_accuracy = training_one_epoch(train_loader, model, optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
-        # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
+            model.train()
+            train_loss, train_accuracy = training_one_epoch(train_loader, model, optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+            # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
-        if log:
-            run.log({"train/loss": train_loss, "train/acc": train_accuracy})
+            if (scenario_turn+1) % eval_term == 0:
+                model_elo = ELO(model_elo=model_elo, base_elo=base_elo, model=model, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
 
-        if (epoch+1) % save_term == 0:
-            save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
-            torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+            if log:
+                logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
 
-        print(f"{epoch}/{turn}th EPOCH DONE!! ---- Train: {train_loss}")
+            if (scenario_turn+1) % save_term == 0:
+                save_path = save_base_path / f"ckpt/epoch-{epoch}-{scenario_turn}.pkl"
+                torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+            
+            print(f"{epoch}/{scenario_turn}th EPOCH DONE!! ---- Train: {train_loss}")
 
+
+
+if __name__ == "__main__":
+    if is_mp:
+        main()
+    else:
+        normal_train()

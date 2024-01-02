@@ -9,12 +9,8 @@ from gomu.bot import load_base, PytorchAgent
 from gomu.algorithms import *
 
 
-def ELO(model, total_play, game_info: GameInfo, device):
+def ELO(model_elo, base_elo, model, total_play, game_info: GameInfo, device, k=16):
     nrow, ncol, n_to_win = game_info.nrow, game_info.ncol, game_info.n_to_win
-
-    model_elo = 100
-    base_elo = 500
-    k = 16
 
     result = 0
 
@@ -34,7 +30,8 @@ def ELO(model, total_play, game_info: GameInfo, device):
                 agent: PytorchAgent = base_agent
 
             next_pos, value = agent(board.board)
-            board.set(next_pos)
+            col, row = next_pos
+            board.set(col, row)
             
             base_agent.update_history(next_pos)
             model_agent.update_history(next_pos)
@@ -43,10 +40,19 @@ def ELO(model, total_play, game_info: GameInfo, device):
             if board.is_gameover():
                 if models_turn == turn:
                     result += 1
+                if DEBUG >= 1:
+                    GoMuKuBoard.viz(board.board).show()
+                break
             if board.is_draw():
                 result += 0.5
-        
-    p_model_win = 1 / (1+10^((base_elo-model_elo)/400))
+                break
 
-    return model_elo + k * (result - p_model_win * total_play)
+    p_model_win = 1 / (1+pow(10,(base_elo-model_elo)/400))
+    elo = model_elo + k * (result - p_model_win * total_play)
+
+    if DEBUG>=1:
+        print(f"Model Expected Winning P: {p_model_win} | Real Winning P: {result / total_play}")        
+        print(f"Final ELO {elo}")
+
+    return elo
     

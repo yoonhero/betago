@@ -3,6 +3,7 @@ import numpy as np
 import tqdm
 import time
 from copy import deepcopy
+from functools import lru_cache
 
 import torch
 import torch.nn as nn
@@ -15,6 +16,7 @@ from .gomuku.errors import PosError
 from .viz import tensor2gomuboard
 from .base import PolicyValueNet
 
+@lru_cache()
 def load_base(game_info: GameInfo, first_channel=2, device="mps", cpk_path="./models/1224-256.pkl"):
     nrow, ncol = game_info.nrow, game_info.ncol
     if device == "cpu" or device == "mps":
