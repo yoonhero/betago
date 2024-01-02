@@ -27,9 +27,6 @@ from elo import ELO
 from shared_adam import SharedAdam
 from data_utils import TempDataset
 
-mp.set_start_method('spawn')
-print(mp.get_start_method())
-
 simulation_no = int(os.getenv("MAX", 100))
 max_vertex = int(os.getenv("MAX_VERTEX", 5))
 save_term = int(os.getenv("SAVE_TERM", 1))
@@ -39,6 +36,24 @@ is_mp = bool(int(os.getenv("MP", 0)))
 device = os.getenv("DEVICE", "cpu")
 UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
+
+save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
+Path("./tmp").mkdir(exist_ok=True)
+save_base_path.mkdir(exist_ok=True)
+(save_base_path / "ckpt").mkdir(exist_ok=True)
+(save_base_path / "evalresults").mkdir(exist_ok=True)
+(save_base_path / "trainresults").mkdir(exist_ok=True)
+
+max_turn = 50
+model_elo = 100
+base_elo = 500
+
+nrow = 20
+ncol = 20
+n_to_win = 5
+game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
+
+zero_state = np.zeros((2, nrow, ncol))
 
 class GGraph(Graph):
     def init(self):
@@ -205,49 +220,6 @@ class MCTSNode():
             return f"MCTS(value={self.score()}, pos={self.action})"
         
         return f"MCTS(root)"
-
-
-nrow = 20
-ncol = 20
-n_to_win = 5
-game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
-channels = [2, 64, 128, 256, 128, 64, 32, 1]
-dropout = 0.5
-
-# model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
-# model.to(device)
-model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
-model.share_memory()
-
-agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
-
-zero_state = np.zeros((2, nrow, ncol))
-
-# Training Hyperparameters
-batch_size = 256
-learning_rate = 5e-4
-weight_decay = 0.1
-
-optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
-optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
-optimizer.load_state_dict(optimizer_ckp)
-total_parameters = get_total_parameters(model)
-print(total_parameters)
-
-save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
-save_base_path.mkdir(exist_ok=True)
-(save_base_path / "ckpt").mkdir(exist_ok=True)
-(save_base_path / "evalresults").mkdir(exist_ok=True)
-(save_base_path / "trainresults").mkdir(exist_ok=True)
-
-max_turn = 50
-model_elo = 100
-base_elo = 500
-
-if log:
-    logger = wandb.init(
-        project="AlphaGomu"
-    )
 
 def get_train_data(updated, mcts_graph):
     train_data = []
@@ -423,6 +395,34 @@ def normal_train():
 
 
 if __name__ == "__main__":
+    mp.set_start_method('spawn')
+
+    channels = [2, 64, 128, 256, 128, 64, 32, 1]
+    dropout = 0.5
+
+    # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
+    # model.to(device)
+    model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+    model.share_memory()
+
+    agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
+
+    # Training Hyperparameters
+    batch_size = 256
+    learning_rate = 5e-4
+    weight_decay = 0.1
+        
+    optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
+    optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
+    optimizer.load_state_dict(optimizer_ckp)
+    total_parameters = get_total_parameters(model)
+    print(total_parameters)
+
+    if log:
+        logger = wandb.init(
+            project="AlphaGomu"
+        )
+
     if is_mp:
         main()
     else:
