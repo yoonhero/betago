@@ -55,6 +55,26 @@ game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 zero_state = np.zeros((2, nrow, ncol))
 
+channels = [2, 64, 128, 256, 128, 64, 32, 1]
+dropout = 0.5
+# model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
+# model.to(device)
+model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+model.share_memory()
+
+agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
+
+# Training Hyperparameters
+batch_size = 256
+learning_rate = 5e-4
+weight_decay = 0.1
+    
+optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
+optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
+optimizer.load_state_dict(optimizer_ckp)
+total_parameters = get_total_parameters(model)
+print(total_parameters)
+
 class GGraph(Graph):
     def init(self):
         self._data = {}
@@ -327,7 +347,7 @@ class Worker(mp.Process):
 
         self.res_queue.put(None)
 
-def main():
+def main(logger):
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
     # total_workers = mp.cpu_count()-1
     total_workers = 12
@@ -351,7 +371,7 @@ def main():
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
     [w.join() for w in workers]
 
-def normal_train():
+def normal_train(logger):
     global model_elo, base_elo
     epoch = 0
 
@@ -397,33 +417,12 @@ def normal_train():
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
-    channels = [2, 64, 128, 256, 128, 64, 32, 1]
-    dropout = 0.5
-
-    # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
-    # model.to(device)
-    model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
-    model.share_memory()
-
-    agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
-
-    # Training Hyperparameters
-    batch_size = 256
-    learning_rate = 5e-4
-    weight_decay = 0.1
-        
-    optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
-    optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
-    optimizer.load_state_dict(optimizer_ckp)
-    total_parameters = get_total_parameters(model)
-    print(total_parameters)
-
     if log:
         logger = wandb.init(
             project="AlphaGomu"
         )
 
     if is_mp:
-        main()
+        main(logger)
     else:
-        normal_train()
+        normal_train(logger)
