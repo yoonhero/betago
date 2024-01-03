@@ -1,8 +1,8 @@
 #! /usr/bin/env python3
 # MCTS Alpha-Zero Implementatino on GO.
 import uuid
-from queue import Queue
 import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 from collections import defaultdict
 import math
 import random
@@ -22,7 +22,7 @@ from gomu.bot import *
 from gomu.game_tree import Graph
 from gomu.helpers import DEBUG
 
-from train_base import get_loss, GOMUDataset, training_one_epoch, save_result
+from train_base import get_loss, training_one_epoch, save_result
 from elo import ELO
 from shared_adam import SharedAdam
 from data_utils import TempDataset
@@ -48,6 +48,11 @@ n_to_win = 5
 game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 zero_state = np.zeros((2, nrow, ncol))
+
+# Training Hyperparameters
+batch_size = 256
+learning_rate = 5e-4
+weight_decay = 0.1
 
 class GGraph(Graph):
     def init(self):
@@ -325,7 +330,7 @@ class Worker(mp.Process):
 def main(logger, save_base_path, gnet, opt, agent):
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
     # total_workers = mp.cpu_count()-1
-    total_workers = 12
+    total_workers = 6
     workers = [Worker(gnet=gnet, opt=opt, global_elo=global_elo, name=i, res_queue=res_queue, save_base_path=save_base_path, agent=agent) for i in range(total_workers)]
     print(f"Total {len(workers)} workers.")
     [w.start() for w in workers]
@@ -338,9 +343,10 @@ def main(logger, save_base_path, gnet, opt, agent):
         train_loss, train_accuracy, current_elo, total_step, scenario_turn, name  = r
 
         if (scenario_turn+1) % save_term == 0:
+            print(scenario_turn)
             save_path = save_base_path / f"ckpt/epoch-{total_step}-{scenario_turn}-{name}.pkl"
             print(f"Save in {save_path}")
-            torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+            torch.save({"model": gnet.state_dict(), "optim": opt.state_dict()}, save_path)
 
         if log:    
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
@@ -372,19 +378,19 @@ def normal_train(logger, save_base_path, gnet, opt, agent):
             
             train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size, shuffle=True)
 
-            model.train()
+            gnet.train()
             train_loss, train_accuracy = training_one_epoch(train_loader, gnet, opt, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
             # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
             if (scenario_turn+1) % eval_term == 0:
-                model_elo = ELO(model_elo=model_elo, base_elo=base_elo, model=model, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
+                model_elo = ELO(model_elo=model_elo, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
 
             if log:
                 logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
 
             if (scenario_turn+1) % save_term == 0:
                 save_path = save_base_path / f"ckpt/epoch-{epoch}-{scenario_turn}.pkl"
-                torch.save({"model": model.state_dict(), "optim": optimizer.state_dict()}, save_path)
+                torch.save({"model": gnet.state_dict(), "optim": opt.state_dict()}, save_path)
             
             print(f"{epoch}/{scenario_turn}th EPOCH DONE!! ---- Train: {train_loss}")
 
@@ -401,11 +407,6 @@ if __name__ == "__main__":
     model.share_memory()
 
     agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
-
-    # Training Hyperparameters
-    batch_size = 256
-    learning_rate = 5e-4
-    weight_decay = 0.1
 
     optimizer_ckp = torch.load(ckp, map_location=torch.device(device))["optim"]
     optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
