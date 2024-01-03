@@ -14,7 +14,7 @@ def ELO(model_elo, base_elo, model, total_play, game_info: GameInfo, device, op_
 
     result = 0
 
-    base = load_base(game_info=game_info, device=device, ckp=op_ckp)
+    base = load_base(game_info=game_info, device=device, ckp_path=op_ckp)
     base_agent = PytorchAgent(base, device=device, n_to_win=n_to_win, with_history=False)
     model_agent = PytorchAgent(model, device=device, n_to_win=n_to_win, with_history=False)
 

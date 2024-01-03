@@ -12,7 +12,7 @@ from einops import rearrange
 from .helpers import DEBUG, GameInfo
 from .gomuku.board import GoMuKuBoard
 from .game_tree import Node, Graph
-from .gomuku.errors import PosError
+from .gomuku.errors import PosError, NanError
 from .viz import tensor2gomuboard
 from .base import PolicyValueNet
 
