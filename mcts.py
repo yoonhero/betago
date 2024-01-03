@@ -34,6 +34,7 @@ log = bool(int(os.getenv("LOG", 0)))
 eval_term = int(os.getenv("EVAL_TERM", 1))
 is_mp = bool(int(os.getenv("MP", 0)))
 device = os.getenv("DEVICE", "cpu")
+ckp = os.getenv("CPK", "./models/1224-256.pkl")
 UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
 
@@ -294,7 +295,7 @@ class Worker(mp.Process):
         self.gnet, self.opt = gnet, opt
         self.save_base_path = save_base_path
 
-        self.lnet = load_base(game_info=game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+        self.lnet = load_base(game_info=game_info, first_channel=2, device=device, cpk_path=ckp)
         self.updated = []
         self.mcts_graph = GGraph()
         self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph)
@@ -395,7 +396,7 @@ if __name__ == "__main__":
     dropout = 0.5
     # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
     # model.to(device)
-    model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+    model = load_base(game_info, first_channel=2, device=device, cpk_path=ckp)
     model.share_memory()
 
     agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
@@ -405,7 +406,7 @@ if __name__ == "__main__":
     learning_rate = 5e-4
     weight_decay = 0.1
 
-    optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
+    optimizer_ckp = torch.load(ckp, map_location=torch.device(device))["optim"]
     optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
     optimizer.load_state_dict(optimizer_ckp)
     total_parameters = get_total_parameters(model)
