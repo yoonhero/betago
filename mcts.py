@@ -230,8 +230,8 @@ def get_train_data(updated, mcts_graph):
         turn = cur_node.turn
         if cur_node.childrens.__len__() == 0:
             continue
-        next_actions = [(children.action, 1-children.q()/children.n()) for children in cur_node.childrens]
-        # next_actions = [(children.action, children.n()) for children in cur_node.childrens]
+        # next_actions = [(children.action, 1-children.q()/children.n()) for children in cur_node.childrens]
+        next_actions = [(children.action, children.n()) for children in cur_node.childrens]
         pi = torch.zeros((1, nrow, ncol))
         # Is V=r+gammaQ?
         for next_action_data in next_actions:
@@ -265,6 +265,8 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
                 policy, value = net(X)
                 loss = get_loss(policy, value, Y, win, nrow, ncol)
 
+                print(loss)
+
                 loss.backward()
                 _loss.append(loss.item()) 
 
@@ -293,7 +295,7 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
     return
 
 class Worker(mp.Process):
-    def __init__(self, gnet, opt, global_elo, res_queue, name, save_base_path, agent):
+    def __init__(self, gnet, opt, global_elo, res_queue, name, save_base_path):
         super(Worker, self).__init__()
         self.name = 'w%02i' % name
         self.g_elo, self.res_queue = global_elo, res_queue
@@ -301,6 +303,7 @@ class Worker(mp.Process):
         self.save_base_path = save_base_path
 
         self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
+        agent = PytorchAgent(model=self.lnet, device=device, n_to_win=n_to_win, with_history=False)
         self.updated = []
         self.mcts_graph = GGraph()
         self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph, agent=agent)
@@ -328,11 +331,11 @@ class Worker(mp.Process):
 
         self.res_queue.put(None)
 
-def main(logger, save_base_path, gnet, opt, agent):
+def main(logger, save_base_path, gnet, opt):
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
     # total_workers = mp.cpu_count()-1
     total_workers = 6
-    workers = [Worker(gnet=gnet, opt=opt, global_elo=global_elo, name=i, res_queue=res_queue, save_base_path=save_base_path, agent=agent) for i in range(total_workers)]
+    workers = [Worker(gnet=gnet, opt=opt, global_elo=global_elo, name=i, res_queue=res_queue, save_base_path=save_base_path) for i in range(total_workers)]
     print(f"Total {len(workers)} workers.")
     [w.start() for w in workers]
     while True:
@@ -353,9 +356,11 @@ def main(logger, save_base_path, gnet, opt, agent):
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
     [w.join() for w in workers]
 
-def normal_train(logger, save_base_path, gnet, opt, agent):
+def normal_train(logger, save_base_path, gnet, opt):
     global model_elo, base_elo
     epoch = 0
+
+    agent = PytorchAgent(model=gnet, device=device, n_to_win=n_to_win, with_history=False)
 
     mcts_graph = GGraph()
     root = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=mcts_graph, agent=agent)
@@ -407,7 +412,7 @@ if __name__ == "__main__":
     model = load_base(game_info, first_channel=2, device=device, ckp_path=ckp)
     model.share_memory()
 
-    agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
+    # agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
 
     optimizer_ckp = torch.load(ckp, map_location=torch.device(device))["optim"]
     optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
@@ -430,6 +435,6 @@ if __name__ == "__main__":
         logger = None
 
     if is_mp:
-        main(logger, save_base_path, gnet=model, opt=optimizer, agent=agent)
+        main(logger, save_base_path, gnet=model, opt=optimizer)
     else:
-        normal_train(logger, save_base_path, gnet=model, opt=optimizer, agent=agent)
+        normal_train(logger, save_base_path, gnet=model, opt=optimizer)

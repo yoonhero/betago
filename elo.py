@@ -41,7 +41,7 @@ def ELO(model_elo, base_elo, model, total_play, game_info: GameInfo, device, op_
             if board.is_gameover():
                 if models_turn == turn:
                     result += 1
-                if DEBUG >= 1:
+                if DEBUG >= 2:
                     GoMuKuBoard.viz(board.board).show()
                 break
             if board.is_draw():

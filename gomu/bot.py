@@ -16,7 +16,7 @@ from .gomuku.errors import PosError, NanError
 from .viz import tensor2gomuboard
 from .base import PolicyValueNet
 
-@lru_cache()
+# @lru_cache()
 def load_base(game_info: GameInfo, first_channel=2, device="mps", ckp_path="./models/1224-256.pkl", prev=False):
     nrow, ncol = game_info.nrow, game_info.ncol
     # if device == "cpu" or device == "mps":
