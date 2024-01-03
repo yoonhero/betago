@@ -37,13 +37,6 @@ device = os.getenv("DEVICE", "cpu")
 UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
 
-save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
-Path("./tmp").mkdir(exist_ok=True)
-save_base_path.mkdir(exist_ok=True)
-(save_base_path / "ckpt").mkdir(exist_ok=True)
-(save_base_path / "evalresults").mkdir(exist_ok=True)
-(save_base_path / "trainresults").mkdir(exist_ok=True)
-
 max_turn = 50
 model_elo = 100
 base_elo = 500
@@ -54,26 +47,6 @@ n_to_win = 5
 game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 zero_state = np.zeros((2, nrow, ncol))
-
-channels = [2, 64, 128, 256, 128, 64, 32, 1]
-dropout = 0.5
-# model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
-# model.to(device)
-model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
-model.share_memory()
-
-agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
-
-# Training Hyperparameters
-batch_size = 256
-learning_rate = 5e-4
-weight_decay = 0.1
-    
-optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
-optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
-optimizer.load_state_dict(optimizer_ckp)
-total_parameters = get_total_parameters(model)
-print(total_parameters)
 
 class GGraph(Graph):
     def init(self):
@@ -267,7 +240,7 @@ def get_train_data(updated, mcts_graph):
     print(f"Total Train Data Size: {len(train_data)}")
     return train_data
 
-def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, scenario_turn, name):
+def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, scenario_turn, name, save_base_path):
     print(f"Update {name}")
     train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size=batch_size, shuffle=True)
     
@@ -314,11 +287,12 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
     return
 
 class Worker(mp.Process):
-    def __init__(self, gnet, opt, global_elo, res_queue, name):
+    def __init__(self, gnet, opt, global_elo, res_queue, name, save_base_path):
         super(Worker, self).__init__()
         self.name = 'w%02i' % name
         self.g_elo, self.res_queue = global_elo, res_queue
         self.gnet, self.opt = gnet, opt
+        self.save_base_path = save_base_path
 
         self.lnet = load_base(game_info=game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
         self.updated = []
@@ -341,17 +315,17 @@ class Worker(mp.Process):
                 train_data = get_train_data(updated, mcts_graph=self.mcts_graph)
 
                 # update global and assign to local net
-                push_and_pull(train_data, self.opt, self.lnet, self.gnet, self.res_queue, self.g_elo, total_step, scenario_turn, self.name)
+                push_and_pull(train_data, self.opt, self.lnet, self.gnet, self.res_queue, self.g_elo, total_step, scenario_turn, self.name, self.save_base_path)
 
             total_step += 1
 
         self.res_queue.put(None)
 
-def main(logger):
+def main(logger, save_base_path, gnet, opt):
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
     # total_workers = mp.cpu_count()-1
     total_workers = 12
-    workers = [Worker(gnet=model, opt=optimizer, global_elo=global_elo, name=i, res_queue=res_queue) for i in range(total_workers)]
+    workers = [Worker(gnet=gnet, opt=opt, global_elo=global_elo, name=i, res_queue=res_queue, save_base_path=save_base_path) for i in range(total_workers)]
     print(f"Total {len(workers)} workers.")
     [w.start() for w in workers]
     while True:
@@ -371,7 +345,7 @@ def main(logger):
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
     [w.join() for w in workers]
 
-def normal_train(logger):
+def normal_train(logger, save_base_path, gnet, opt):
     global model_elo, base_elo
     epoch = 0
 
@@ -397,7 +371,7 @@ def normal_train(logger):
             train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size, shuffle=True)
 
             model.train()
-            train_loss, train_accuracy = training_one_epoch(train_loader, model, optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+            train_loss, train_accuracy = training_one_epoch(train_loader, gnet, opt, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
             # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
             if (scenario_turn+1) % eval_term == 0:
@@ -417,6 +391,33 @@ def normal_train(logger):
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
+    channels = [2, 64, 128, 256, 128, 64, 32, 1]
+    dropout = 0.5
+    # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
+    # model.to(device)
+    model = load_base(game_info, first_channel=2, device=device, cpk_path="./models/1224-256.pkl")
+    model.share_memory()
+
+    agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
+
+    # Training Hyperparameters
+    batch_size = 256
+    learning_rate = 5e-4
+    weight_decay = 0.1
+
+    optimizer_ckp = torch.load("./models/1224-256.pkl", map_location=torch.device(device))["optim"]
+    optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
+    optimizer.load_state_dict(optimizer_ckp)
+    total_parameters = get_total_parameters(model)
+    print(total_parameters)
+
+    save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
+    Path("./tmp").mkdir(exist_ok=True)
+    save_base_path.mkdir(exist_ok=True)
+    (save_base_path / "ckpt").mkdir(exist_ok=True)
+    (save_base_path / "evalresults").mkdir(exist_ok=True)
+    (save_base_path / "trainresults").mkdir(exist_ok=True)
+
     if log:
         logger = wandb.init(
             project="AlphaGomu"
@@ -425,6 +426,6 @@ if __name__ == "__main__":
         logger = None
 
     if is_mp:
-        main(logger)
+        main(logger, save_base_path, gnet=model, opt=optimizer)
     else:
-        normal_train(logger)
+        normal_train(logger, save_base_path, gnet=model, opt=optimizer)
