@@ -61,7 +61,7 @@ def ELO(model_elo, base_elo, model, total_play, game_info: GameInfo, device, k=1
 if __name__ == "__main__":
     device = "cpu"
     game_info = GameInfo(nrow=20, ncol=20, n_to_win=5)
-    base_model = load_base(game_info=game_info, device=device)
+    base_model = load_base(game_info=game_info, device=device, cpk_path="./models/")
 
     print(ELO(500, 500, base_model, 20, game_info=game_info, device=device))
     
