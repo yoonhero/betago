@@ -54,6 +54,40 @@ batch_size = 256
 learning_rate = 1e-4
 weight_decay = 0.1
 
+def normal_dist(x, y, xmu, ymu, sig):
+    return 1/np.sqrt(2*np.pi*pow(sig, 2)) * np.exp((-pow((x-xmu),2)-pow((y-ymu), 2))/(2*pow(sig, 2)))
+
+def make_circular_heatmap(ncol, nrow):
+    xmu = (ncol-1) / 2
+    ymu = (nrow-1) / 2
+    sig = (xmu+ymu)/4
+
+    heatmap = np.zeros((nrow, ncol))
+    
+    for row in range(nrow):
+        for col in range(ncol):
+            val = normal_dist(x=col, y=row, xmu=xmu, ymu=ymu, sig=sig)
+            heatmap[row, col] = val
+    
+    return heatmap
+
+class EGreedyAgent(PytorchAgent):
+    def predict_egreedy_pos(self, board_state, top_k, temperature=1, eps=0.2):
+        num_best = int(top_k * (1-eps))
+        num_explore = top_k - num_best
+        best_action, _ = self.predict_next_pos(board_state, num_best, temperature, best=True, history=False)
+
+        circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow)
+        circular_zone = torch.from_numpy(circular_zone).to(dtype=torch.float32, device=self.device)
+        not_free_space = self.get_not_free_space(board_state=board_state)
+        not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
+        possible = (1 - not_possible)*circular_zone
+        possible = possible.view(1, -1)
+        selected_policy = torch.multinomial(possible/temperature, num_samples=num_explore)
+        random_action = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in selected_policy.tolist()][0]
+        action = best_action + random_action
+        return list(set(action))
+
 class GGraph(Graph):
     def init(self):
         self._data = {}
@@ -75,7 +109,7 @@ class MCTSNode():
         self._results[1] = 0
         self._results[-1] = 0
 
-        self.agent: PytorchAgent = agent
+        self.agent: EGreedyAgent = agent
         self._untried_actions = None
         self._untried_actions = self.untried_actions()
         self.id = str(uuid.uuid4())
@@ -99,13 +133,13 @@ class MCTSNode():
 
     def maximum_top_k(self, state):
         empty_spaces = (state.sum(0)!=1).sum()
-        top_k = max_vertex if empty_spaces > max_vertex else empty_spaces
+        top_k = 3 if empty_spaces > 3 else empty_spaces
         return top_k
 
     def get_legal_actions(self):
         top_k = self.maximum_top_k(self.state)
         if top_k != 0:
-            next_poses, _ = self.agent.predict_next_pos(board_state=self.state, top_k=top_k)
+            next_poses = self.agent.predict_egreedy_pos(board_state=self.state, top_k=top_k)
             return next_poses
         return []
 
@@ -265,8 +299,6 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
                 policy, value = net(X)
                 loss = get_loss(policy, value, Y, win, nrow, ncol)
 
-                print(loss)
-
                 loss.backward()
                 _loss.append(loss.item()) 
 
@@ -303,7 +335,7 @@ class Worker(mp.Process):
         self.save_base_path = save_base_path
 
         self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
-        agent = PytorchAgent(model=self.lnet, device=device, n_to_win=n_to_win, with_history=False)
+        agent = EGreedyAgent(model=self.lnet, device=device, n_to_win=n_to_win, with_history=False)
         self.updated = []
         self.mcts_graph = GGraph()
         self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph, agent=agent)
@@ -360,7 +392,7 @@ def normal_train(logger, save_base_path, gnet, opt):
     global model_elo, base_elo
     epoch = 0
 
-    agent = PytorchAgent(model=gnet, device=device, n_to_win=n_to_win, with_history=False)
+    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, with_history=False)
 
     mcts_graph = GGraph()
     root = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=mcts_graph, agent=agent)
