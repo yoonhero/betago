@@ -32,3 +32,6 @@ class ThreadingErrorHandler(threading.Thread):
             raise ThreadingError()
         except Exception:
             self.bucket.put(sys.exc_info())
+class NanError(Exception):
+    def __init__(self):
+        super().__init__(f"NANANANANAN")

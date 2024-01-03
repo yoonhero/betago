@@ -51,7 +51,7 @@ zero_state = np.zeros((2, nrow, ncol))
 
 # Training Hyperparameters
 batch_size = 256
-learning_rate = 5e-4
+learning_rate = 1e-4
 weight_decay = 0.1
 
 class GGraph(Graph):
@@ -75,7 +75,7 @@ class MCTSNode():
         self._results[1] = 0
         self._results[-1] = 0
 
-        self.agent = agent
+        self.agent: PytorchAgent = agent
         self._untried_actions = None
         self._untried_actions = self.untried_actions()
         self.id = str(uuid.uuid4())
@@ -153,6 +153,7 @@ class MCTSNode():
                 if DEBUG >= 2:
                     print(current_rollout_state)
                 return 1/2
+            
             possible_moves, _ = self.agent.predict_next_pos(board_state=current_rollout_state, top_k=top_k)
 
             action = self.rollout_policy(possible_moves)
@@ -286,7 +287,7 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
     lnet.load_state_dict(gnet.state_dict())
 
     # if (scenario_turn+1) % eval_term == 0:
-    g_elo.value = ELO(model_elo=g_elo.value, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
+    g_elo.value = ELO(model_elo=g_elo.value, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
 
     res_queue.put((training_loss, training_acc, g_elo.value, total_step, scenario_turn, name))
     return
@@ -383,7 +384,7 @@ def normal_train(logger, save_base_path, gnet, opt, agent):
             # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
             if (scenario_turn+1) % eval_term == 0:
-                model_elo = ELO(model_elo=model_elo, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device)
+                model_elo = ELO(model_elo=model_elo, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
 
             if log:
                 logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})

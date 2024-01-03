@@ -193,7 +193,11 @@ class PytorchAgent(Agent):
         else:
             sampling_k = top_k + 1
         topk_policy_values, topk_policy_indices = torch.topk(policy, sampling_k, -1)
-        selected_policy = torch.multinomial(topk_policy_values/temperature, num_samples=top_k)
+        try:
+            selected_policy = torch.multinomial(topk_policy_values/temperature, num_samples=top_k)
+        except:
+            print(topk_policy_values)
+            raise NanError
         policies = torch.gather(topk_policy_indices, 1, selected_policy)
         # _, policies = torch.topk(policy, top_k, -1)
         predicted_pos = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in policies.tolist()]
