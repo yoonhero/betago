@@ -135,8 +135,6 @@ class MCTSNode():
         return random.choice(possible_moves)
 
     def rollout(self):
-        model.eval()
-
         current_rollout_state = self.state
         turn = self.turn
 
@@ -311,6 +309,7 @@ class Worker(mp.Process):
             
             for scenario_turn in range(max_turn):
                 print(f"Simulating {self.name}")
+                self.lnet.eval()
                 self.root_node.simulate()
 
                 updated = self.root_node.updated
@@ -363,6 +362,7 @@ def normal_train(logger, save_base_path, gnet, opt, agent):
 
         for scenario_turn in range(max_turn):
             print("Simulating....")
+            gnet.eval()
             root.simulate()
 
             if DEBUG >= 3:
