@@ -34,7 +34,7 @@ log = bool(int(os.getenv("LOG", 0)))
 eval_term = int(os.getenv("EVAL_TERM", 1))
 is_mp = bool(int(os.getenv("MP", 0)))
 device = os.getenv("DEVICE", "cpu")
-ckp = os.getenv("CPK", "./models/1224-256.pkl")
+ckp = os.getenv("CKP", "./models/1224-256.pkl")
 UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
 
@@ -58,7 +58,7 @@ class GGraph(Graph):
     def data(self): return self._data
 
 class MCTSNode():
-    def __init__(self, state, turn, mcts_graph, action=None, parent=None, updated=None):
+    def __init__(self, state, turn, mcts_graph, agent, action=None, parent=None, updated=None):
         self.state = state
         self.parent = parent
         self.childrens = []
@@ -70,6 +70,7 @@ class MCTSNode():
         self._results[1] = 0
         self._results[-1] = 0
 
+        self.agent = agent
         self._untried_actions = None
         self._untried_actions = self.untried_actions()
         self.id = str(uuid.uuid4())
@@ -99,7 +100,7 @@ class MCTSNode():
     def get_legal_actions(self):
         top_k = self.maximum_top_k(self.state)
         if top_k != 0:
-            next_poses, _ = agent.predict_next_pos(board_state=self.state, top_k=top_k)
+            next_poses, _ = self.agent.predict_next_pos(board_state=self.state, top_k=top_k)
             return next_poses
         return []
 
@@ -113,8 +114,8 @@ class MCTSNode():
     
     def expand(self):
         action = self._untried_actions.pop()
-        next_state = agent.get_new_board_state(board_state=self.state, next_pos=action, my_turn=self.turn)
-        child_node = MCTSNode(next_state, turn=1-self.turn, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph)
+        next_state = self.agent.get_new_board_state(board_state=self.state, next_pos=action, my_turn=self.turn)
+        child_node = MCTSNode(next_state, turn=1-self.turn, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent)
         self.childrens.append(child_node)
 
         self.mcts_graph.addEdge(self, child_node)
@@ -149,10 +150,10 @@ class MCTSNode():
                 if DEBUG >= 2:
                     print(current_rollout_state)
                 return 1/2
-            possible_moves, _ = agent.predict_next_pos(board_state=current_rollout_state, top_k=top_k)
+            possible_moves, _ = self.agent.predict_next_pos(board_state=current_rollout_state, top_k=top_k)
 
             action = self.rollout_policy(possible_moves)
-            current_rollout_state = agent.get_new_board_state(board_state=current_rollout_state, next_pos=action, my_turn=turn)
+            current_rollout_state = self.agent.get_new_board_state(board_state=current_rollout_state, next_pos=action, my_turn=turn)
         
         if DEBUG >= 3:
             print(f"Current Depth: {depth}")
@@ -288,17 +289,17 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
     return
 
 class Worker(mp.Process):
-    def __init__(self, gnet, opt, global_elo, res_queue, name, save_base_path):
+    def __init__(self, gnet, opt, global_elo, res_queue, name, save_base_path, agent):
         super(Worker, self).__init__()
         self.name = 'w%02i' % name
         self.g_elo, self.res_queue = global_elo, res_queue
         self.gnet, self.opt = gnet, opt
         self.save_base_path = save_base_path
 
-        self.lnet = load_base(game_info=game_info, first_channel=2, device=device, cpk_path=ckp)
+        self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
         self.updated = []
         self.mcts_graph = GGraph()
-        self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph)
+        self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph, agent=agent)
         self.mcts_graph.root(root_node=self.root_node)
 
     def run(self):
@@ -322,11 +323,11 @@ class Worker(mp.Process):
 
         self.res_queue.put(None)
 
-def main(logger, save_base_path, gnet, opt):
+def main(logger, save_base_path, gnet, opt, agent):
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
     # total_workers = mp.cpu_count()-1
     total_workers = 12
-    workers = [Worker(gnet=gnet, opt=opt, global_elo=global_elo, name=i, res_queue=res_queue, save_base_path=save_base_path) for i in range(total_workers)]
+    workers = [Worker(gnet=gnet, opt=opt, global_elo=global_elo, name=i, res_queue=res_queue, save_base_path=save_base_path, agent=agent) for i in range(total_workers)]
     print(f"Total {len(workers)} workers.")
     [w.start() for w in workers]
     while True:
@@ -346,12 +347,12 @@ def main(logger, save_base_path, gnet, opt):
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
     [w.join() for w in workers]
 
-def normal_train(logger, save_base_path, gnet, opt):
+def normal_train(logger, save_base_path, gnet, opt, agent):
     global model_elo, base_elo
     epoch = 0
 
     mcts_graph = GGraph()
-    root = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=mcts_graph)
+    root = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=mcts_graph, agent=agent)
     mcts_graph.root(root_node=root)
 
     while True:
@@ -396,7 +397,7 @@ if __name__ == "__main__":
     dropout = 0.5
     # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
     # model.to(device)
-    model = load_base(game_info, first_channel=2, device=device, cpk_path=ckp)
+    model = load_base(game_info, first_channel=2, device=device, ckp_path=ckp)
     model.share_memory()
 
     agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
@@ -427,6 +428,6 @@ if __name__ == "__main__":
         logger = None
 
     if is_mp:
-        main(logger, save_base_path, gnet=model, opt=optimizer)
+        main(logger, save_base_path, gnet=model, opt=optimizer, agent=agent)
     else:
-        normal_train(logger, save_base_path, gnet=model, opt=optimizer)
+        normal_train(logger, save_base_path, gnet=model, opt=optimizer, agent=agent)

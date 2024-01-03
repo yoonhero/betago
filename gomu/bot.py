@@ -17,11 +17,11 @@ from .viz import tensor2gomuboard
 from .base import PolicyValueNet
 
 @lru_cache()
-def load_base(game_info: GameInfo, first_channel=2, device="mps", cpk_path="./models/1224-256.pkl", prev=False):
+def load_base(game_info: GameInfo, first_channel=2, device="mps", ckp_path="./models/1224-256.pkl", prev=False):
     nrow, ncol = game_info.nrow, game_info.ncol
     # if device == "cpu" or device == "mps":
-    checkpoint = torch.load(cpk_path, map_location=torch.device(device))["model"]
-    # else: checkpoint = torch.load(cpk_path)["model"]
+    checkpoint = torch.load(ckp_path, map_location=torch.device(device))["model"]
+    # else: checkpoint = torch.load(ckp_path)["model"]
     if not prev:
         channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
     else:

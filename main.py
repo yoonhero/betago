@@ -26,10 +26,10 @@ n_to_win = 5
 game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 # Load Agent
-cpk_path = os.getenv("LOAD", "./models/1224-256.pkl")
+ckp_path = os.getenv("LOAD", "./models/1224-256.pkl")
 first_channel = int(os.getenv("FIRST_CHAN", 2))
 with_history = first_channel != 2
-model = load_base(game_info=game_info, device=device, cpk_path=cpk_path)
+model = load_base(game_info=game_info, device=device, ckp_path=ckp_path)
 
 base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 
