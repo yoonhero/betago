@@ -158,7 +158,7 @@ class DijkstraAgent(PytorchAgent):
 
 
 
-class QstartAgent(PytorchAgent):
+class QstarAgent(PytorchAgent):
     def __init__(self, max_depth, max_vertexs, **kwargs):
         super().__init__(**kwargs)
         self.max_depth = max_depth
@@ -260,7 +260,8 @@ class QstartAgent(PytorchAgent):
 
                 for i, next_pos in enumerate(next_poses):
                     q = qs[i][0]
-                    final_cost = state_cost + q
+                    heuristic_cost = (1-q)
+                    final_cost = state_cost + heuristic_cost
                     item = (final_cost, newnew_state, next_pos, state_cost, depth+1, ith, None)
                     open.put(item)
         
@@ -276,5 +277,4 @@ class QstartAgent(PytorchAgent):
             GoMuKuBoard.viz(board_state=state).show()
             print("Q* Searching Finished!!")
             print(f"Predicted Next Position: {next_pos}")
-        print(next_pos)
         return next_pos, 1

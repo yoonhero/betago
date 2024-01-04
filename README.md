@@ -11,13 +11,53 @@ I use ResNet based U-Net architecture for predicting policy distribution and val
 
 ![ground truch](./docs/0-gt.png)
 
+> blue is GT
+
 ![prediction](./docs/0-pred.png)
 
-## ToDOs
+> prediction
 
-- [x] QNet pretraining
-- [ ] Reinforcement Learning GYM
-- [x] Minimax (alpha-beta)
-- [x] MCTS
-- [x] Dijkstra
-- [x] Q*
+![loss](./docs/loss.png)
+![acc](./docs/acc.png)
+
+
+### Q* Algorithm
+
+To implement Q* algorithm in zero sum game, I pressume several things because this is unusual searching situation. A complex game such as gomuku or go has tremendous possible winning scenarios incomparable with traditional searching environment. So I simplify this situation. We cannot know every edge transition cost. Borrowing some Reinforcement learning ideas, I define the transition cost as oppositer's expected value according to their best action like minimax algorithm's oppositer. And heuristic value is 1 minus my excpted value. Except for this, everything follow the A* algorithm. It can step bigger toward winning than traditional game theory algorithm such as alpha-beta pruning. 
+
+
+*Searching Process*
+
+```
+open: Priority Queue
+values: Map()
+
+1. Start From Greedy Choices.
+2. Push them inside the open.
+
+while PQ.empty():
+    item <- pop from open
+    
+    new_state <- (state, action)
+    opposite_action = Policy Net (new_state)
+    new_state <- (new_state, opposite_action)
+    current_cost = opposite_expected_value = Value Net (new_state)
+
+    current_state_cost = previous_state_cost + current_cost
+
+    if new_state not in values keys or current_state_cost < values[new_state]
+        my_actions = Policy Net (new_state)
+        
+        for my_action in my_actions
+            temp_state <- (new_state, my_action)
+            my expected value = Value net (temp_state)
+            heuristic_cost = 1 - my expected value 
+            final_cost = current_state_cost + heuristic_cost
+            put item on open
+```
+
+**Performance**
+
+![qstar](./docs/elo.png)
+
+This was performance result of Qstar Searching Algorithm. Both searching method starts from ELO score 400. After 100 game simulations, Qstar's real winning probability is almost 62.5%. It's quiet impressing that not changing model itself but just changing the searching method could improve the performance. This is prototype of Q* algorithm implementation. So you can improve more and more based on my idea.

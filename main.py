@@ -42,7 +42,7 @@ if "minimax" in bot_type:
 if "dijkstra" in bot_type:
     bot = DijkstraAgent(**base_config, max_depth_per_search=max_depth, max_search_vertex=max_vertex)
 if "qstar" in bot_type:
-    bot = QstartAgent(**base_config, max_depth=max_depth, max_vertexs=max_vertex)
+    bot = QstarAgent(**base_config, max_depth=max_depth, max_vertexs=max_vertex)
 
 if not is_gui:
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)

@@ -257,7 +257,7 @@ class MinimaxWithAB(PytorchAgent):
         origin = None
         new_strategy = MinimaxWithAB.MIN if strategy == MinimaxWithAB.MAX else MinimaxWithAB.MAX
 
-        loader = tqdm.tqdm(selected_poses) if root else selected_poses
+        loader = tqdm.tqdm(selected_poses, disable=bool(DEBUG<=2)) if root else selected_poses
 
         for next_pos in loader:
             cur_node = Node(f"{next_pos}")

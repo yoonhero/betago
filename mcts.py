@@ -131,13 +131,13 @@ class MCTSNode():
         _untried_actions = self.get_legal_actions()
         return _untried_actions
 
-    def maximum_top_k(self, state):
+    def maximum_top_k(self, state, desired_min):
         empty_spaces = (state.sum(0)!=1).sum()
-        top_k = 3 if empty_spaces > 3 else empty_spaces
+        top_k = desired_min if empty_spaces > desired_min else empty_spaces
         return top_k
 
     def get_legal_actions(self):
-        top_k = self.maximum_top_k(self.state)
+        top_k = self.maximum_top_k(self.state, max_vertex)
         if top_k != 0:
             next_poses = self.agent.predict_egreedy_pos(board_state=self.state, top_k=top_k)
             return next_poses
@@ -182,7 +182,7 @@ class MCTSNode():
         while not GoMuKuBoard.is_game_done(board_state=current_rollout_state, turn=turn, n_to_win=n_to_win):
             depth += 1
             turn = 1 - turn
-            top_k = self.maximum_top_k(current_rollout_state)
+            top_k = self.maximum_top_k(current_rollout_state, 2)
             if top_k == 0:
                 if DEBUG >= 2:
                     print(current_rollout_state)
@@ -321,7 +321,7 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
     lnet.load_state_dict(gnet.state_dict())
 
     # if (scenario_turn+1) % eval_term == 0:
-    g_elo.value = ELO(model_elo=g_elo.value, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
+    g_elo.value = ELO(challenger_elo=g_elo.value, critic_elo=base_elo, challenger=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
 
     res_queue.put((training_loss, training_acc, g_elo.value, total_step, scenario_turn, name))
     return
@@ -421,7 +421,7 @@ def normal_train(logger, save_base_path, gnet, opt):
             # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
             if (scenario_turn+1) % eval_term == 0:
-                model_elo = ELO(model_elo=model_elo, base_elo=base_elo, model=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
+                model_elo = ELO(challenger_elo=model_elo, critic_elo=base_elo, challenger=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
 
             if log:
                 logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
