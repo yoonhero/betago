@@ -1,5 +1,5 @@
 # This case isn't unusual.
-# It's quite excited to combine Q and * Q*.
+# It's quite excited to combine Q and A*.
 from collections import defaultdict
 from queue import Queue
 import math
@@ -163,7 +163,7 @@ class QstarAgent(PytorchAgent):
         super().__init__(**kwargs)
         self.max_depth = max_depth
         self.max_vertexs = max_vertexs
-        self.maximum_affordable = math.ceil(math.sqrt(max_vertexs ^ max_depth))
+        self.maximum_affordable = int(max_vertexs*max_depth * 0.8)
 
     def best_choice(self, board_state, turn, history):
         # this value is transition cost.
@@ -196,7 +196,7 @@ class QstarAgent(PytorchAgent):
         _, value = self.model(board_state)
         return value.cpu().detach().tolist()
     
-    def forward(self, board_state, turn, **kwargs):
+    def forward(self, board_state, turn, gamma=0.9, **kwargs):
         total_stone = (board_state != 0).sum()
 
         if total_stone <= 6:
@@ -206,20 +206,20 @@ class QstarAgent(PytorchAgent):
         open = PriorityQueue()
         closed = defaultdict(lambda: None)
         valuemap = defaultdict(lambda: float("inf"))        
+        my_turn = turn
         opposite_turn = 1 - turn
 
         history = self.history
 
         my_initial_best_choices, _ = self.predict_next_pos(board_state, history=history, top_k=self.max_vertexs, best=True)
         for i, my_initial_best_choice in enumerate(my_initial_best_choices):
-            initial_item = (0, board_state, my_initial_best_choice, 0, 1, i, deepcopy(history))
+            initial_item = (0, board_state, my_initial_best_choice, 0, 0, i, deepcopy(history))
             open.put(initial_item)
         
         count = 0
         
         # Transition Cost = Next Mover's Expected Value?
         while not open.empty():
-            current_turn = turn
             _, state, action, prev_state_cost, depth, ith, _history = open.get()
 
             # restrict the max searching depth for no solution case.
@@ -232,11 +232,11 @@ class QstarAgent(PytorchAgent):
                     print("STOP Searching Cause Current Depth Max Depth Setting.")
                 return super().forward(board_state, **kwargs)
             
-            new_state = self.get_new_board_state(state, next_pos=action, my_turn=current_turn)
+            new_state = self.get_new_board_state(state, next_pos=action, my_turn=my_turn)
             # Exit the loop when found the desired board state.
-            if self.heuristic(board_state=state, my_turn=current_turn) > 0:
+            if self.heuristic(board_state=new_state, my_turn=my_turn) > 0:
                 break
-        
+
             newnew_state, current_cost, best_next_pose = self.best_choice(board_state=new_state, turn=opposite_turn, history=_history)
             # _history.append(best_next_pose)
             # Prevent ignoring the ending scenario
@@ -251,17 +251,13 @@ class QstarAgent(PytorchAgent):
                 closed[str_newnew_state] = state
                 valuemap[str_newnew_state] = state_cost
                 next_poses, _ = self.predict_next_pos(newnew_state, top_k=self.max_vertexs, best=False, history=_history)
-                # histories = []
-                # for i, next_pos in enumerate(next_poses):
-                #     __history = deepcopy(_history)
-                #     __history.append(next_pos)
-                #     histories.append(__history)
                 qs = self.get_q_with_batch(board_state=newnew_state, next_poses=next_poses, turn=turn, history=None)
 
                 for i, next_pos in enumerate(next_poses):
                     q = qs[i][0]
                     heuristic_cost = (1-q)
-                    final_cost = state_cost + heuristic_cost
+                    # EMA
+                    final_cost = gamma * prev_state_cost + current_cost + heuristic_cost
                     item = (final_cost, newnew_state, next_pos, state_cost, depth+1, ith, None)
                     open.put(item)
         

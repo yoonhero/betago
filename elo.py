@@ -10,7 +10,7 @@ from gomu.algorithms import *
 
 def simulate(agent1, agent2, game_info: GameInfo):
     turn = 0
-    nrow, ncol, n_to_win = game_info["nrow"], game_info["ncol"], game_info["n_to_win"]
+    nrow, ncol, n_to_win = game_info.nrow, game_info.ncol, game_info.n_to_win
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
     while True:      
@@ -60,7 +60,7 @@ def ELO(challenger_elo, critic_elo, challenger, total_play, game_info: GameInfo,
             agent = {"agent1": challenger_agent, "agent2": critic_agent}
         game_result = simulate(**agent, game_info=game_info)
 
-        result += game_result[challenger_turn]
+        result += game_result[1-challenger_turn]
 
     p_model_win = 1 / (1+pow(10,(critic_elo-challenger_elo)/400))
     elo = challenger_elo + k * (result - p_model_win * total_play)

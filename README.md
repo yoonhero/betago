@@ -5,6 +5,27 @@ One thing we can suppose to about this algorithm is naming.
 This project is about implementing the Gomuku, easier than Go, with various traditional path finding algorithms for best decision making based on game theory.
 
 
+## Playing Game Guide
+
+1. First, Clone this repository.
+
+```
+git clone https://github.com/yoonhero/betago
+```
+
+2. And install requirements.
+
+```
+pip install -r requirements.txt
+```
+
+3. Finally, play against ai.
+
+```
+GUI=True BOT=qstar MAX_VERTEX=3 MAX_DEPTH=5 ./main.py
+```
+
+
 ## Method
 
 I use ResNet based U-Net architecture for predicting policy distribution and value, just as alphago. But I exploit the unet's image transforming ability for predicting policy job.
@@ -35,7 +56,7 @@ values: Map()
 1. Start From Greedy Choices.
 2. Push them inside the open.
 
-while PQ.empty():
+while not PQ.empty():
     item <- pop from open
     
     new_state <- (state, action)
@@ -60,4 +81,8 @@ while PQ.empty():
 
 ![qstar](./docs/elo.png)
 
-This was performance result of Qstar Searching Algorithm. Both searching method starts from ELO score 400. After 100 game simulations, Qstar's real winning probability is almost 62.5%. It's quiet impressing that not changing model itself but just changing the searching method could improve the performance. This is prototype of Q* algorithm implementation. So you can improve more and more based on my idea.
+> Q*(n) referes to the max searching depth (n turn)
+
+> 1 = attack-defend
+
+This was performance result of Qstar Searching Algorithm. Both searching method starts from ELO score 400. After 100 game simulations, Qstar's real winning probability is almost 75%. It's quiet impressing that not changing model itself but just changing the searching method could improve the performance. This is prototype of Q* algorithm implementation. So you can improve more and more based on my idea.

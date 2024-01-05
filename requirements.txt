@@ -2,3 +2,8 @@ wandb
 einops
 pygame
 tqdm
+torch
+graphviz
+matplotlib
+scipy
+seaborn
