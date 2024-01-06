@@ -179,7 +179,8 @@ class MCTSNode():
         return f"MCTSNode(root)"
     
 class MCTS(Graph):
-    def init(self, agent, args):
+    def __init__(self, agent, args):
+        self.graph = defaultdict(list)
         self._data = {}
         self.graph = defaultdict(list)
         self.agent: EGreedyAgent = agent
