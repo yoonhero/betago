@@ -74,7 +74,7 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
                 pbar.set_description(f"{epoch}/{step}")
                 pbar.set_postfix(loss=_loss[-1])
                 
-                num_correct += ((value>0.5)==win).sum()
+                num_correct += ((value>0)==win).sum()
                 num_samples += value.size(0)
             
             save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
