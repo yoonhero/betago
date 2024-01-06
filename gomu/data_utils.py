@@ -7,6 +7,20 @@ import torch
 from torch.utils.data import Dataset
 import einops
 
+# Always first element is me~
+def preprocess_state(state, prev=True):
+    if prev:
+        _state = state
+    else:
+        _state = np.stack([state[0], (state.sum(0)==0), state[1]])
+    torch_state = torch.from_numpy(_state).to(dtype=torch.float32)
+
+    total_BLACK = torch_state[0].sum()
+    total_WHITE = torch_state[1].sum()
+    if total_BLACK > total_WHITE:
+        torch_state = torch.roll(torch_state, 1, 0)
+
+    return torch_state
 
 class GOMUDataset(Dataset):
     def __init__(self, max_idx, device):
@@ -57,31 +71,13 @@ class GOMUDataset(Dataset):
         # to_get_idx = idx*12+randomnum
         board, next_pos, game_result, prev_move = self.board_state[idx], self.next_pos[idx], self.winner[idx], self.prev_moves[idx]
         # BLACK: 1, WHITE: -1: DRAW=0
-        x, y = torch.from_numpy(board), torch.from_numpy(next_pos)
-        
-        # Masking the y
-        # not_free_space = x.sum(1).unsqueeze(1)
-        # y = y.masked_fill(not_free_space==1, -1e9)
+        x, y = preprocess_state(board),torch.from_numpy(next_pos)
 
-        # if your turn?
-        # me in first row
-        # comptetitor in second row
-        total_BLACK = torch.sum(x[0])
-        total_WHITE = torch.sum(x[1])
-        if total_BLACK != total_WHITE:
-            # print(total_BLACK, total_WHITE)
-            # x[0], x[1] = x[1], x[0]
-            x = torch.roll(x, 1, 0)
-            game_result = -game_result
-
-        # x = torch.cat([x, prev_move])
-
-        # WIN: 1 | DRAW: 0.5 | LOSE: 0
-        game_result = (game_result+1)/2
+        # WIN: 1 | DRAW: 0 | LOSE: -1
+        # game_result = (game_result+1)/2
         game_result = torch.from_numpy(game_result)
 
         # IMG [B, C, H, W]
-       # x = einops.rearrange(x, "2 h w -> h w")
         y = einops.rearrange(y, "h w -> 1 h w")
         x = x.to(torch.float32)
         y = y.to(torch.float32)
@@ -100,10 +96,12 @@ class TempDataset(Dataset):
     def __getitem__(self, idx):
         state, pi, value = self.data[idx]
 
-        total_BLACK = torch.sum(state[0])
-        total_WHITE = torch.sum(state[1])
-        if total_BLACK != total_WHITE:
-            state = torch.roll(state, 1, 0)
+        state = preprocess_state(state)
+
+        # total_BLACK = torch.sum(state[0])
+        # total_WHITE = torch.sum(state[1])
+        # if total_BLACK != total_WHITE:
+        #     state = torch.roll(state, 1, 0)
 
         # Augmentation
         # roll? flip?

@@ -9,30 +9,26 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-from .helpers import DEBUG, GameInfo
+from .helpers import DEBUG, GameInfo, loading
 from .gomuku.board import GoMuKuBoard
 from .game_tree import Node, Graph
 from .gomuku.errors import PosError, NanError
 from .viz import tensor2gomuboard
 from .base import PolicyValueNet
+from .data_utils import preprocess_state
 
 # @lru_cache()
-def load_base(game_info: GameInfo, first_channel=2, device="mps", ckp_path="./models/1224-256.pkl", prev=False):
+@loading
+def load_base(game_info: GameInfo, first_channel=2, device="mps", ckp_path="./models/1224-256.pkl", module=PolicyValueNet):
     nrow, ncol = game_info.nrow, game_info.ncol
     # if device == "cpu" or device == "mps":
     checkpoint = torch.load(ckp_path, map_location=torch.device(device))["model"]
     # else: checkpoint = torch.load(ckp_path)["model"]
-    if not prev:
-        channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
-    else:
-        channels = [first_channel, 64, 128, 256, 128, 64, 1]
-    start = time.time()
-    model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
+    channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
+    model = module(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
     model.load_state_dict(checkpoint)
     model.eval()
     model.to(device)
-    if DEBUG >= 2:
-        print(f"Loading the PolicyValue Network in {time.time() - start}s")
     return model
 
 # Base Agent Structure
@@ -106,21 +102,11 @@ class RandomMover(Agent):
 
 # Simple Pytorch Agent
 class PytorchAgent(Agent):
-    def __init__(self, model, device, **kwargs):
+    def __init__(self, model, device, prev=True, **kwargs):
         super().__init__(**kwargs)
         self.model = model
         self.device = device
-
-    # Always first element is me~
-    def preprocess_state(self, state):
-        torch_state = torch.from_numpy(state).to(dtype=torch.float32, device=self.device)
-
-        total_BLACK = torch_state[0].sum()
-        total_WHITE = torch_state[1].sum()
-        if total_BLACK != total_WHITE:
-            torch_state = torch.roll(torch_state, 1, 0)
-
-        return torch_state
+        self.prev = prev
 
     def make_history_state(self, history, nrow, ncol, history_size=2):
         if not isinstance(history[0], list):
@@ -148,7 +134,7 @@ class PytorchAgent(Agent):
         _, ncol, nrow = state.shape
 
         if isinstance(state, np.ndarray):
-            state = self.preprocess_state(state)
+            state = preprocess_state(state, self.prev).to(self.device)
         
         if self.with_history:
             if history == None:

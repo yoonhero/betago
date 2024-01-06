@@ -93,6 +93,15 @@ class GoMuKuBoard():
             return True
             
         return False
+    
+    @staticmethod
+    def change_perspective(board_state):   
+        first = board_state[0].sum()
+        second = board_state[1].sum()
+        if first > second:
+            return np.roll(board_state, 1, 0)
+        else:
+            return board_state
 
     @staticmethod    
     def is_game_done(board_state, turn, n_to_win):
@@ -105,6 +114,18 @@ class GoMuKuBoard():
         
     def is_draw(self):
         return self.total_empty() == 0 and not self.is_gameover()
+    
+    def get_value_and_terminated(self, board_state, turn):
+        draw = (board_state.sum(0)==0).sum()==0
+        win = GoMuKuBoard.is_game_done(board_state=board_state, turn=turn, n_to_win=self.n_to_win)
+        score = 0
+        if win:
+            score = 1
+        
+        return score, draw or win
+    
+    def format_pos(self, idx):
+        return (idx%self.ncol, idx//self.ncol)
 
     @staticmethod
     def viz(board_state):

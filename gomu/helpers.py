@@ -1,4 +1,6 @@
 import os
+import functools
+import time
 
 class GameInfo:
     def __init__(self, nrow, ncol, n_to_win):
@@ -19,3 +21,19 @@ class DEBUGSign():
     def __lt__(self, x): return self.value < x
 
 DEBUG = DEBUGSign(0)
+
+def loading(func):
+    @functools.wraps(func)
+    def wrapped(*args, **kwargs):
+        st = time.monotonic()
+        result = func(*args, **kwargs)
+        end = time.monotonic()
+        if DEBUG >= 2:
+            print(f"Loading the PolicyValue Network in {end - st}s")
+        return result
+    return wrapped
+
+models_channels = {
+    "old": [2, 64, 128, 256, 128, 64, 32, 1],
+    "new": [2, 64, 128, 64, 32, 1]
+}

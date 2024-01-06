@@ -324,7 +324,7 @@ class PolicyValueNet(nn.Module):
         return policy, value
 
 class NewPolicyValueNet(nn.Module):
-    def __init__(self, nrow, ncol, channels, dropout):
+    def __init__(self, nrow, ncol, channels, dropout, sig=False):
         super().__init__()
         self.nrow = nrow
         self.ncol = ncol
@@ -368,7 +368,7 @@ class NewPolicyValueNet(nn.Module):
 
         self.val_ff = nn.Sequential(
             nn.Linear(final, 1),
-            nn.Sigmoid()
+            (nn.Sigmoid() if sig else nn.Tanh())
         )
 
         self._intialize_weights()

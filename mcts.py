@@ -25,7 +25,7 @@ from gomu.helpers import DEBUG
 from train_base import get_loss, training_one_epoch, save_result
 from elo import ELO
 from shared_adam import SharedAdam
-from data_utils import TempDataset
+from gomu.data_utils import TempDataset
 
 simulation_no = int(os.getenv("MAX", 100))
 max_vertex = int(os.getenv("MAX_VERTEX", 5))
@@ -50,7 +50,7 @@ zero_state = np.zeros((2, nrow, ncol))
 
 # Training Hyperparameters
 batch_size = 256
-learning_rate = 1e-4
+learning_rate = 5e-4
 weight_decay = 0.1
 
 def normal_dist(x, y, xmu, ymu, sig):
@@ -74,6 +74,19 @@ class EGreedyAgent(PytorchAgent):
     @staticmethod
     def eps(n):
         return 1 / (1+np.exp(-0.2*n))
+    
+    def get_policy_and_value(self, board_state):
+        policy, value = self.model_predict(board_state)
+
+        policy = torch.softmax(policy, 1).squeeze(0).cpu()
+        not_free_space = self.get_not_free_space(board_state=board_state)
+        not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32).unsqueeze(0)
+        policy *= (1-not_possible)
+        policy /= policy.sum()
+
+        value = value.item()
+
+        return policy, value
 
     def predict_egreedy_pos(self, board_state, top_k, temperature=1, eps=0.2):
         num_best = math.ceil(top_k * (1-eps))
@@ -103,194 +116,179 @@ class GGraph(Graph):
     def data(self): return self._data
 
 class MCTSNode():
-    def __init__(self, state, turn, mcts_graph, agent, action=None, parent=None, updated=None):
+    def __init__(self, state, mcts_graph, args, action=None, prior=0, parent=None, board_env=None):
         self.state = state
         self.parent = parent
+        self.board_env: GoMuKuBoard = board_env
         self.childrens = []
         self.action = action
-
+        self.prior = 0
         self.visit_count = 0
+        self.value_sum = 0
 
-        self._results = defaultdict(int)
-        self._results[1] = 0
-        self._results[-1] = 0
-
-        self.agent: EGreedyAgent = agent
-        self._untried_actions = None
-        self._untried_actions = self.untried_actions()
+        # self.agent: EGreedyAgent = agent
         self.id = str(uuid.uuid4())
         self.mcts_graph = mcts_graph
 
-        self.turn = turn
-        if updated == None:
-            self.updated = []
-        else:
-            self.updated = updated
+        self.args = args
     
-    def init(self):
-        self.childrens = []
-        self._results = defaultdict(int)
-        self._untried_actions = self.untried_actions()
-        self.updated = []
+    def expand(self, policy: torch.Tensor):
+        for i, prob in enumerate(policy.view(-1).tolist()):
+            action = self.board_env.format_pos(i)
+            if prob > 0:
+                child_state = self.state.copy()
+                child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=self.turn)
+                child_state = GoMuKuBoard.change_perspective(child_state)
+                
+                child_node = MCTSNode(child_state, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env)
+                self.childrens.append(child_node)
 
-    def untried_actions(self):
-        _untried_actions = self.get_legal_actions()
-        return _untried_actions
-
-    def maximum_top_k(self, state, desired_min):
-        empty_spaces = (state.sum(0)!=1).sum()
-        top_k = desired_min if empty_spaces > desired_min else empty_spaces
-        return top_k
-
-    def get_legal_actions(self):
-        top_k = self.maximum_top_k(self.state, max_vertex)
-        next_poses = []
-        if top_k != 0:
-            next_poses = self.agent.predict_egreedy_pos(board_state=self.state, top_k=top_k)
-        return next_poses
-
-    def q(self):
-        win = self._results[1]
-        lose = self._results[-1]
-        return win - lose
-
-    def n(self):
-        return self.visit_count
-    
-    def expand(self):
-        action = self._untried_actions.pop()
-        next_state = self.agent.get_new_board_state(board_state=self.state, next_pos=action, my_turn=self.turn)
-        child_node = MCTSNode(next_state, turn=1-self.turn, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent)
-        self.childrens.append(child_node)
-
-        self.mcts_graph.addEdge(self, child_node)
+                self.mcts_graph.addEdge(self, child_node)
 
         return child_node
 
     def is_terminal_node(self):
         return self.game_result() != 0
 
-    def game_result(self):
-        is_game_done = GoMuKuBoard.is_game_done(board_state=self.state, turn=1-self.turn, n_to_win=n_to_win) or (self.state.sum(0)==0).sum()==0
-        if is_game_done:
-            return 1
-        return 0
-
-    # def rollout_policy(self, possible_moves):
-        # return random.choice(possible_moves)
-
-    def rollout(self):
-        current_rollout_state = self.state
-        turn = self.turn
-
-        depth = 0
-
-        while not GoMuKuBoard.is_game_done(board_state=current_rollout_state, turn=1-turn, n_to_win=n_to_win):
-            depth += 1
-            top_k = self.maximum_top_k(current_rollout_state, 2)
-            if top_k == 0:
-                if DEBUG >= 2:
-                    print(current_rollout_state)
-                return 1/2
-            
-            possible_moves, _ = self.agent.predict_next_pos(board_state=current_rollout_state, top_k=top_k)
-
-            action = possible_moves[0]
-            current_rollout_state = self.agent.get_new_board_state(board_state=current_rollout_state, next_pos=action, my_turn=turn)
-            turn = 1 - turn
-        
-        if DEBUG >= 3:
-            print(f"Current Depth: {depth}")
-
-        if DEBUG >= 3:
-            GoMuKuBoard.viz(current_rollout_state).show()
-
-        if self.turn == 1-turn:
-            return 1
-        return -1
-
-    # def rollout(self)
-    def backpropagate(self, result):
-        self.visit_count += 1
-        if result != 0.5:
-            self._results[result] += 1
-        else:
-            self._results[1] += 0.5
-            self._results[-1] += 0.5
-
-        # Add the node for training nn.
-        self.updated.append(self.id)
-
-        if self.parent:
-            self.parent.backpropagate(-result)
-
     def is_fully_expanded(self):
         return not int(self._untried_actions.__len__())
 
-    def score(self, c=0.1):
-        ucb_score = self.q() / (self.n()+1) + c * math.sqrt(2 * math.log(self.parent.n()) / (self.n()+2))
-        return ucb_score
+    def score(self, child):
+        if child.visit_count == 0:
+            q_value = 0
+        else:
+            q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
+        # ucb_score = self.q() / (self.n()+1) + c * math.sqrt(2 * math.log(self.parent.n()) / (self.n()+2))
+        return q_value + self.args["C"] * (math.sqrt(self.visit_count) / (child.visit_count + 1)) * child.prior
     
-    def best_child(self, c_param=0.1):
-        try:
-            choices_weight = [children.score(c=c_param) for children in self.childrens]
-            np.argmax(choices_weight)
-            return self.childrens[np.argmax(choices_weight)]
-        except:
-            print(self.state)
-            raise
+    def best_child(self):
+        choices_weight = [self.score(children) for children in self.childrens]
+        return self.childrens[np.argmax(choices_weight)]
     
-    def _tree_policy(self):
-        current_node = self
+    def backpropagate(self, value):
+        self.visit_count += 1
+        self.value_sum += value
 
-        while not current_node.is_terminal_node():
-            if not current_node.is_fully_expanded():
-                return current_node.expand()
-            else:
-                current_node = current_node.best_child()
-
-        return current_node
-    
-    def simulate(self):
-        for i in tqdm.trange(simulation_no):
-            v = self._tree_policy()
-            reward = v.rollout()
-            v.backpropagate(reward)
-
-        return
+        if self.parent:
+            self.parent.backpropagate(-value)
 
     def __repr__(self) -> str:
-        if self.parent != None:
-            return f"MCTS(value={self.score()}, pos={self.action})"
+        if self.parent:
+            return f"MCTSNode(pos={self.action})"
+    
+        return f"MCTSNode(root)"
+    
+class MCTS(Graph):
+    def init(self, agent, args):
+        self._data = {}
+        self.graph = defaultdict(list)
+        self.agent: EGreedyAgent = agent
+        self.board_env = GoMuKuBoard(nrow, ncol, n_to_win)
+        self.args = args
+
+    def set_root(self, root_node): self._data[root_node.id] = root_node
+    
+    @torch.no_grad()
+    def search(self, state):
+        root = MCTSNode(state=state, parent=None, mcts_graph=self.mcts_graph, args=self.args, board_env=self.board_env)
+
+        for search in range(self.args["num_searches"]):
+            node = root
+
+            while node.is_fully_expanded():
+                node = node.best_child()
+            
+            value, is_terminal = self.board_env.get_value_and_terminated(node.state)
+
+            if not is_terminal:
+                policy, value = self.agent.get_policy_and_value(node.state)
+                
+                node.expand(policy)
+            
+            node.backpropagate(value)
+
+        action_probs = np.zeros((1, 20, 20))
+        for child in root.childrens:
+            col, row = child.action
+            action_probs[0, row, col] = child.visit_count
+        action_probs /= np.sum(action_probs)
+
+    
+        if DEBUG >= 3:
+            self.viz(root).view()
+
+        return action_probs
+
+class Zero():
+    def __init__(self, model, optimizer, agent, device, args, save_base_path, logger):
+        self.model = model
+        self.optimizer = optimizer
+        self.args = args
+        self.agent: EGreedyAgent = agent
+        self.mcts = MCTS(agent, args)
+        self.device = device
+        self.save_base_path = save_base_path
+        self.logger = logger
+
+    def self_play(self):
+        memory = []
+        state = zero_state.copy()
+        player = 0
+
+        while True:
+            initial_state = GoMuKuBoard.change_perspective(state)
+            action_probs = self.mcts.search(initial_state)
+
+            memory.append((initial_state, action_probs, player))
+            
+            action = torch.multinomial(action_probs.view(-1), num_samples=1)
+            action = self.board_env.format_pos(action)
+
+            state = self.agent.get_new_board_state(board_state=initial_state, next_pos=action, my_turn=player)
+
+            value, is_terminal = self.board_env.get_value_and_terminated(state)
+
+            if is_terminal:
+                return_memory = []
+                for hist_state, hist_action_probs, hist_player in memory:
+                    hist_outcome = value if hist_player == player else -value
+                    return_memory.append((hist_state, hist_action_probs, hist_outcome))
+                return return_memory
+
+            player = 1 - player
+    
+    def train(self, data, epoch):
+        train_loader = torch.utils.data.DataLoader(TempDataset(data, device=self.device), batch_size, shuffle=True)
+
+        train_loss, train_accuracy = training_one_epoch(train_loader, self.model, self.optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+
+        return train_loss, train_accuracy
+
+    def learn(self):
+        for iteration in range(self.args["num_iterations"]):
+            memory = []
+
+            self.model.eval()
+            for self_play_iteration in tqdm.trange(self.args["num_self_play_iterations"]):
+                memory += self.self_play()
+            
+            self.model.train()
+            for epoch in tqdm.trange(self.args["num_epochs"]):
+                train_loss, train_accuracy = self.train(memory, epoch=self.args["num_epochs"] * iteration + epoch)
+
+                if (epoch+1) % eval_term == 0 and n_to_win == 5:
+                    model_elo = ELO(challenger_elo=model_elo, critic_elo=base_elo, challenger=self.model, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
+
+                if log:
+                    self.logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
+
+                if (epoch+1) % save_term == 0:
+                    save_path = self.save_base_path / f"ckpt/epoch-{iteration}-{epoch}.pkl"
+                    torch.save({"model": self.model.state_dict(), "optim": self.optimizer.state_dict()}, save_path)
+                
+                print(f"{iteration}/{epoch}th EPOCH DONE!! ---- Train: {train_loss}")
+
         
-        return f"MCTS(root)"
-
-def get_train_data(updated, mcts_graph):
-    train_data = []
-    real_updated = set(updated)
-    # (State, Next Action Pi Distribution, expected value=.q)
-    for node_key in real_updated:
-        cur_node = mcts_graph.data[node_key]
-        tensor_state = torch.tensor(cur_node.state)
-        turn = cur_node.turn
-        if cur_node.childrens.__len__() == 0:
-            continue
-        # next_actions = [(children.action, 1-children.q()/children.n()) for children in cur_node.childrens]
-        next_actions = [(children.action, children.n()) for children in cur_node.childrens]
-        pi = torch.zeros((1, nrow, ncol))
-        # Is V=r+gammaQ?
-        for next_action_data in next_actions:
-            next_action, expected_value = next_action_data
-            col, row = next_action
-            pi[0, row, col] = expected_value
-        # Q normalization
-        pi = pi / pi.sum()
-        expected_value = torch.tensor([cur_node.q()/cur_node.n()])
-        item = (tensor_state, pi, expected_value)
-        train_data.append(item)
-    print(f"Total Train Data Size: {len(train_data)}")
-    return train_data
-
 def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, scenario_turn, name, save_base_path):
     print(f"Update {name}")
     train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size=batch_size, shuffle=True)
@@ -344,7 +342,7 @@ class Worker(mp.Process):
 
         # self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
         self.lnet = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.5).to(device)
-        agent = EGreedyAgent(model=self.lnet, device=device, n_to_win=n_to_win, with_history=False)
+        agent = EGreedyAgent(model=self.lnet, device=device, n_to_win=n_to_win, prev=False, with_history=False)
         self.updated = []
         self.mcts_graph = GGraph()
         self.root_node = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=self.mcts_graph, agent=agent)
@@ -401,58 +399,21 @@ def main(logger, save_base_path, gnet, opt):
             logger.log({"train/loss": train_loss, "train/acc": train_accuracy})
     [w.join() for w in workers]
 
-def normal_train(logger, save_base_path, gnet, opt):
-    global model_elo, base_elo
-    epoch = 0
+def normal_train(logger, save_base_path, gnet, opt, args):
+    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, prev=False, with_history=False)
 
-    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, with_history=False)
+    zero = Zero(model=gnet, optimizer=opt, agent=agent, args=args, device=device, save_base_path=save_base_path, logger=logger)
 
-    mcts_graph = GGraph()
-    root = MCTSNode(state=zero_state, turn=0, parent=None, mcts_graph=mcts_graph, agent=agent)
-    mcts_graph.root(root_node=root)
-
-    while True:
-        epoch += 1
-        mcts_graph.init()
-        root.init()
-        mcts_graph.root(root_node=root)
-
-        for scenario_turn in range(max_turn):
-            print("Simulating....")
-            gnet.eval()
-            root.simulate()
-
-            if DEBUG >= 3:
-                mcts_graph.viz(root).view()
-
-            train_data = get_train_data(updated=root.updated, mcts_graph=mcts_graph)
-            
-            train_loader = torch.utils.data.DataLoader(TempDataset(train_data, device=device), batch_size, shuffle=True)
-
-            gnet.train()
-            train_loss, train_accuracy = training_one_epoch(train_loader, gnet, opt, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
-            # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
-
-            if (scenario_turn+1) % eval_term == 0 and n_to_win == 5:
-                model_elo = ELO(challenger_elo=model_elo, critic_elo=base_elo, challenger=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
-
-            if log:
-                logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
-
-        if (epoch+1) % save_term == 0:
-            save_path = save_base_path / f"ckpt/epoch-{epoch}-{scenario_turn}.pkl"
-            torch.save({"model": gnet.state_dict(), "optim": opt.state_dict()}, save_path)
-        
-        print(f"{epoch}/{scenario_turn}th EPOCH DONE!! ---- Train: {train_loss}")
-
-
+    zero.learn()
 
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
+    args = {"C": 2, "num_searches": 60, "num_iteration": 100, "num_self_play_iterations": 500, "num_epochs": 5}
+
     # channels = [2, 64, 128, 256, 128, 64, 32, 1]
     # channels = [2, 64, 128, 64, 1]
-    channels = [2, 4, 128, 64, 32, 1]
+    channels = [3, 64, 128, 256, 128, 64, 32, 1]
     dropout = 0.2
     model = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
     model.to(device)
@@ -487,4 +448,4 @@ if __name__ == "__main__":
     if is_mp:
         main(logger, save_base_path, gnet=model, opt=optimizer)
     else:
-        normal_train(logger, save_base_path, gnet=model, opt=optimizer)
+        normal_train(logger, save_base_path, gnet=model, opt=optimizer, args=args)

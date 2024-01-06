@@ -18,18 +18,25 @@ bot_type = os.getenv("BOT", "random") # random | torch | minimax | dijkstra | qs
 max_vertex = int(os.getenv("MAX_VERTEX", 3))
 max_depth = int(os.getenv("MAX_DEPTH", 3))
 first_channel = int(os.getenv("FIRST_CHAN", 2)) # default is 2 | history_size + 2
+module_type = os.getenv("MOD", "new")
 
 # Gomu Board
-nrow = 3
-ncol = 3
-n_to_win = 3
+nrow = 20
+ncol = 20
+n_to_win = 5
 game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 # Load Agent
 ckp_path = os.getenv("LOAD", "./models/1224-256.pkl")
 first_channel = int(os.getenv("FIRST_CHAN", 2))
-with_history = first_channel != 2
-model = load_base(game_info=game_info, device=device, ckp_path=ckp_path)
+with_history = first_channel != 3
+
+if module_type == "old":
+    module = PolicyValueNet
+else:
+    module = NewPolicyValueNet
+
+model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module)
 
 base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 
@@ -74,5 +81,5 @@ if not is_gui:
         print("Bot Thinking was completed.")
         print(board)
 else:
-    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=100)
+    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=45)
     game.play()

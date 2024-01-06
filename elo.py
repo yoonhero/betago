@@ -2,7 +2,9 @@
 import numpy as np
 import time
 import tqdm
+import os
 
+from gomu.base import NewPolicyValueNet
 from gomu.helpers import DEBUG, GameInfo
 from gomu.gomuku import GoMuKuBoard
 from gomu.bot import load_base, PytorchAgent, Agent
@@ -74,7 +76,17 @@ def ELO(challenger_elo, critic_elo, challenger, total_play, game_info: GameInfo,
 
 if __name__ == "__main__":
     device = "cpu"
+    model_path = os.getenv("CKP", "./models/1224-256.pkl")
     game_info = GameInfo(nrow=20, ncol=20, n_to_win=5)
-    base_model = load_base(game_info=game_info, device=device, ckp_path="./models/")
+    model = load_base(game_info=game_info, device=device, module=NewPolicyValueNet, ckp_path=model_path, first_channel=3)
+    model = PytorchAgent(model, device=device, n_to_win=game_info.n_to_win, prev=False, with_history=False)
 
-    print(ELO(500, 500, base_model, 20, game_info=game_info, device=device))
+    import matplotlib.pyplot as plt
+
+    elos = {"base": 500, "upcoming": 500}
+    elos["upcoming"] = ELO(elos["upcoming"], elos["base"], model, 100, game_info=game_info, device=device)
+    print(f"Final Result! : {elos}")
+    plt.bar(list(elos.keys()), list(elos.values()))
+    plt.ylabel("Elo")
+    # plt.savefig("elo.png")
+    plt.show()

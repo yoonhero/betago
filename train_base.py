@@ -18,10 +18,10 @@ import matplotlib.pyplot as plt
 import time
 import os
 
-from gomu.base import PolicyValueNet, Unet, Transformer, get_total_parameters
+from gomu.base import PolicyValueNet, Unet, Transformer, get_total_parameters, NewPolicyValueNet
 from gomu.viz import tensor2gomuboard
 
-from data_utils import GOMUDataset
+from gomu.data_utils import GOMUDataset
 
 def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
     # cross_loss = nn.CrossEntropyLoss()
@@ -43,7 +43,7 @@ def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
 
 def save_result(x, y, policy, save_base_path, nrow, ncol, epoch, train=True):
     pred_pos_pil = tensor2gomuboard(policy, nrow, ncol, softmax=True, scale=10)
-    concatenated = x[0]-x[1]
+    concatenated = x[0]-x[2]
     ground_true_pil = tensor2gomuboard(2*(y!=0)+concatenated, nrow, ncol)
     if train:
         eval_result_path = save_base_path / f"trainresults/{epoch}-pred.png"
@@ -65,8 +65,6 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
                 net.train()
                 policy, value = net(X)
                 loss = get_loss(policy, value, Y, win, nrow, ncol)
-
-                print(loss)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -103,7 +101,7 @@ if __name__ == "__main__":
     load_path = os.getenv("CKPT")
     save_term = int(os.getenv("SAVE_TERM", 1))
 
-    total_samples = 14000
+    total_samples = 10000
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     full_dataset = GOMUDataset(total_samples, device=device)
     train_size = int(0.8 * len(full_dataset))
@@ -117,10 +115,10 @@ if __name__ == "__main__":
 
     nrow, ncol = 20, 20
     # channels = [2, 8, 36]
-    channels = [2, 64, 128, 256, 128, 64, 32, 1]
+    channels = [3, 64, 128, 256, 128, 64, 32, 1]
     #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
-    dropout = 0.5
-    net = PolicyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
+    dropout = 0.2
+    net = NewPolicyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
 
     # net = torch.compile(not_compiled)
 
