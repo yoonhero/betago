@@ -140,7 +140,7 @@ class MCTSNode():
                 child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=self.turn)
                 child_state = GoMuKuBoard.change_perspective(child_state)
                 
-                child_node = MCTSNode(child_state, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env)
+                child_node = MCTSNode(child_state, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env, prior=prob)
                 self.childrens.append(child_node)
 
                 self.mcts_graph.addEdge(self, child_node)
@@ -151,7 +151,7 @@ class MCTSNode():
         return self.game_result() != 0
 
     def is_fully_expanded(self):
-        return not int(self._untried_actions.__len__())
+        return int(self.childrens.__len__()) > 0
 
     def score(self, child):
         if child.visit_count == 0:
@@ -191,7 +191,7 @@ class MCTS(Graph):
     
     @torch.no_grad()
     def search(self, state):
-        root = MCTSNode(state=state, parent=None, mcts_graph=self.mcts_graph, args=self.args, board_env=self.board_env)
+        root = MCTSNode(state=state, parent=None, mcts_graph=self, args=self.args, board_env=self.board_env)
 
         for search in range(self.args["num_searches"]):
             node = root
@@ -199,7 +199,7 @@ class MCTS(Graph):
             while node.is_fully_expanded():
                 node = node.best_child()
             
-            value, is_terminal = self.board_env.get_value_and_terminated(node.state)
+            value, is_terminal = self.board_env.get_value_and_terminated(node.state, node.state.sum()%2)
 
             if not is_terminal:
                 policy, value = self.agent.get_policy_and_value(node.state)
@@ -410,7 +410,7 @@ def normal_train(logger, save_base_path, gnet, opt, args):
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
-    args = {"C": 2, "num_searches": 60, "num_iteration": 100, "num_self_play_iterations": 500, "num_epochs": 5}
+    args = {"C": 2, "num_searches": 60, "num_iterations": 100, "num_self_play_iterations": 500, "num_epochs": 5}
 
     # channels = [2, 64, 128, 256, 128, 64, 32, 1]
     # channels = [2, 64, 128, 64, 1]
