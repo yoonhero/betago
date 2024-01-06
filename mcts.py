@@ -121,7 +121,7 @@ def get_turn(board_state):
     return int(board_state.sum()%2)
 
 class MCTSNode():
-    def __init__(self, state, mcts_graph, agent, args, action=None, prior=0, parent=None, board_env=None):
+    def __init__(self, state, agent, args, action=None, prior=0, parent=None, board_env=None):
         self.state = state
         self.parent = parent
         self.board_env: GoMuKuBoard = board_env
@@ -133,7 +133,7 @@ class MCTSNode():
 
         self.agent: EGreedyAgent = agent
         self.id = str(uuid.uuid4())
-        self.mcts_graph = mcts_graph
+        # self.mcts_graph = mcts_graph
 
         self.args = args
     
@@ -145,10 +145,10 @@ class MCTSNode():
                 child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=0)
                 child_state = GoMuKuBoard.change_perspective(child_state)
                 
-                child_node = MCTSNode(child_state, parent=self, action=action, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env, prior=prob, args=self.args)
+                child_node = MCTSNode(child_state, parent=self, action=action, agent=self.agent, board_env=self.board_env, prior=prob, args=self.args)
                 self.childrens.append(child_node)
 
-                self.mcts_graph.addEdge(self, child_node)
+                # self.mcts_graph.addEdge(self, child_node)
 
         return child_node
 
@@ -185,18 +185,18 @@ class MCTSNode():
     
 class MCTS(Graph):
     def __init__(self, agent, board_env, args):
-        self.graph = defaultdict(list)
-        self._data = {}
-        self.graph = defaultdict(list)
+        # self.graph = defaultdict(list)
+        # self._data = {}
+        # self.graph = defaultdict(list)
         self.agent: EGreedyAgent = agent
         self.board_env: GoMuKuBoard = board_env
         self.args = args
 
-    def set_root(self, root_node): self._data[root_node.id] = root_node
+    # def set_root(self, root_node): self._data[root_node.id] = root_node
     
     @torch.no_grad()
     def search(self, state):
-        root = MCTSNode(state=state, agent=self.agent, mcts_graph=self, args=self.args, board_env=self.board_env)
+        root = MCTSNode(state=state, agent=self.agent, args=self.args, board_env=self.board_env)
 
         for search in range(self.args["num_searches"]):
             node = root
