@@ -143,7 +143,7 @@ class MCTSNode():
                 child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=get_turn(child_state))
                 child_state = GoMuKuBoard.change_perspective(child_state)
                 
-                child_node = MCTSNode(child_state, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env, prior=prob)
+                child_node = MCTSNode(child_state, parent=self, action=action, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env, prior=prob, args=self.args)
                 self.childrens.append(child_node)
 
                 self.mcts_graph.addEdge(self, child_node)
