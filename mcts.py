@@ -116,17 +116,17 @@ class GGraph(Graph):
     def data(self): return self._data
 
 class MCTSNode():
-    def __init__(self, state, mcts_graph, args, action=None, prior=0, parent=None, board_env=None):
+    def __init__(self, state, mcts_graph, agent, args, action=None, prior=0, parent=None, board_env=None):
         self.state = state
         self.parent = parent
         self.board_env: GoMuKuBoard = board_env
         self.childrens = []
         self.action = action
-        self.prior = 0
+        self.prior = prior
         self.visit_count = 0
         self.value_sum = 0
 
-        # self.agent: EGreedyAgent = agent
+        self.agent: EGreedyAgent = agent
         self.id = str(uuid.uuid4())
         self.mcts_graph = mcts_graph
 
@@ -191,7 +191,7 @@ class MCTS(Graph):
     
     @torch.no_grad()
     def search(self, state):
-        root = MCTSNode(state=state, parent=None, mcts_graph=self, args=self.args, board_env=self.board_env)
+        root = MCTSNode(state=state, agent=self.agent, mcts_graph=self, args=self.args, board_env=self.board_env)
 
         for search in range(self.args["num_searches"]):
             node = root
@@ -199,7 +199,7 @@ class MCTS(Graph):
             while node.is_fully_expanded():
                 node = node.best_child()
             
-            value, is_terminal = self.board_env.get_value_and_terminated(node.state, node.state.sum()%2)
+            value, is_terminal = self.board_env.get_value_and_terminated(node.state, int(node.state.sum()%2))
 
             if not is_terminal:
                 policy, value = self.agent.get_policy_and_value(node.state)
