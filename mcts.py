@@ -17,7 +17,7 @@ import torch.multiprocessing as mp
 from einops import rearrange
 
 from gomu.gomuku import board
-from gomu.base import PolicyValueNet, get_total_parameters
+from gomu.base import PolicyValueNet, NewPolicyValueNet, get_total_parameters
 from gomu.bot import *
 from gomu.game_tree import Graph
 from gomu.helpers import DEBUG
@@ -38,14 +38,13 @@ ckp = os.getenv("CKP", "./models/1224-256.pkl")
 UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
 
-max_turn = 50
+max_turn = 2
 model_elo = 100
 base_elo = 500
 
-nrow = 20
-ncol = 20
-n_to_win = 5
-game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
+games = {"ttt": GameInfo(nrow=3, ncol=3, n_to_win=3), "gomu": GameInfo(20, 20, 5)}
+game_info = games["gomu"]
+nrow, ncol, n_to_win = game_info()
 
 zero_state = np.zeros((2, nrow, ncol))
 
@@ -72,19 +71,26 @@ def make_circular_heatmap(ncol, nrow):
     return heatmap
 
 class EGreedyAgent(PytorchAgent):
+    @staticmethod
+    def eps(n):
+        return 1 / (1+np.exp(-0.2*n))
+
     def predict_egreedy_pos(self, board_state, top_k, temperature=1, eps=0.2):
-        num_best = int(top_k * (1-eps))
+        num_best = math.ceil(top_k * (1-eps))
         num_explore = top_k - num_best
         best_action, _ = self.predict_next_pos(board_state, num_best, temperature, best=True, history=False)
 
-        circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow)
-        circular_zone = torch.from_numpy(circular_zone).to(dtype=torch.float32, device=self.device)
-        not_free_space = self.get_not_free_space(board_state=board_state)
-        not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
-        possible = (1 - not_possible)*circular_zone
-        possible = possible.view(1, -1)
-        selected_policy = torch.multinomial(possible/temperature, num_samples=num_explore)
-        random_action = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in selected_policy.tolist()][0]
+        if num_explore > 0:
+            circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow)
+            circular_zone = torch.from_numpy(circular_zone).to(dtype=torch.float32, device=self.device)
+            not_free_space = self.get_not_free_space(board_state=board_state)
+            not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32, device=self.device).unsqueeze(0)
+            possible = (1 - not_possible)*circular_zone
+            possible = possible.view(1, -1)
+            selected_policy = torch.multinomial(possible/temperature, num_samples=num_explore)
+            random_action = [self.format_pos(batch, ncol=board_state.shape[-1]) for batch in selected_policy.tolist()][0]
+        else: random_action = []
+
         action = best_action + random_action
         return list(set(action))
 
@@ -138,10 +144,10 @@ class MCTSNode():
 
     def get_legal_actions(self):
         top_k = self.maximum_top_k(self.state, max_vertex)
+        next_poses = []
         if top_k != 0:
             next_poses = self.agent.predict_egreedy_pos(board_state=self.state, top_k=top_k)
-            return next_poses
-        return []
+        return next_poses
 
     def q(self):
         win = self._results[1]
@@ -165,13 +171,13 @@ class MCTSNode():
         return self.game_result() != 0
 
     def game_result(self):
-        is_game_done = GoMuKuBoard.is_game_done(board_state=self.state, turn=self.turn, n_to_win=n_to_win)
+        is_game_done = GoMuKuBoard.is_game_done(board_state=self.state, turn=1-self.turn, n_to_win=n_to_win) or (self.state.sum(0)==0).sum()==0
         if is_game_done:
             return 1
         return 0
 
-    def rollout_policy(self, possible_moves):
-        return random.choice(possible_moves)
+    # def rollout_policy(self, possible_moves):
+        # return random.choice(possible_moves)
 
     def rollout(self):
         current_rollout_state = self.state
@@ -179,9 +185,8 @@ class MCTSNode():
 
         depth = 0
 
-        while not GoMuKuBoard.is_game_done(board_state=current_rollout_state, turn=turn, n_to_win=n_to_win):
+        while not GoMuKuBoard.is_game_done(board_state=current_rollout_state, turn=1-turn, n_to_win=n_to_win):
             depth += 1
-            turn = 1 - turn
             top_k = self.maximum_top_k(current_rollout_state, 2)
             if top_k == 0:
                 if DEBUG >= 2:
@@ -190,8 +195,9 @@ class MCTSNode():
             
             possible_moves, _ = self.agent.predict_next_pos(board_state=current_rollout_state, top_k=top_k)
 
-            action = self.rollout_policy(possible_moves)
+            action = possible_moves[0]
             current_rollout_state = self.agent.get_new_board_state(board_state=current_rollout_state, next_pos=action, my_turn=turn)
+            turn = 1 - turn
         
         if DEBUG >= 3:
             print(f"Current Depth: {depth}")
@@ -199,7 +205,7 @@ class MCTSNode():
         if DEBUG >= 3:
             GoMuKuBoard.viz(current_rollout_state).show()
 
-        if self.turn == turn:
+        if self.turn == 1-turn:
             return 1
         return -1
 
@@ -226,8 +232,13 @@ class MCTSNode():
         return ucb_score
     
     def best_child(self, c_param=0.1):
-        choices_weight = [children.score(c=c_param) for children in self.childrens]
-        return self.childrens[np.argmax(choices_weight)]
+        try:
+            choices_weight = [children.score(c=c_param) for children in self.childrens]
+            np.argmax(choices_weight)
+            return self.childrens[np.argmax(choices_weight)]
+        except:
+            print(self.state)
+            raise
     
     def _tree_policy(self):
         current_node = self
@@ -305,7 +316,7 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
                 pbar.set_description(f"{epoch}/{step}")
                 pbar.set_postfix(loss=_loss[-1])
                 
-                num_correct += ((value>0.5)==(win!=0)).sum() / win.sum() * value.size(0)
+                num_correct += ((value>0.5)==win).sum()
                 num_samples += value.size(0)
             
             save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
@@ -320,9 +331,6 @@ def push_and_pull(train_data, opt, lnet, gnet, res_queue, g_elo, total_step, sce
 
     lnet.load_state_dict(gnet.state_dict())
 
-    # if (scenario_turn+1) % eval_term == 0:
-    g_elo.value = ELO(challenger_elo=g_elo.value, critic_elo=base_elo, challenger=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
-
     res_queue.put((training_loss, training_acc, g_elo.value, total_step, scenario_turn, name))
     return
 
@@ -334,7 +342,8 @@ class Worker(mp.Process):
         self.gnet, self.opt = gnet, opt
         self.save_base_path = save_base_path
 
-        self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
+        # self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
+        self.lnet = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.5)
         agent = EGreedyAgent(model=self.lnet, device=device, n_to_win=n_to_win, with_history=False)
         self.updated = []
         self.mcts_graph = GGraph()
@@ -361,7 +370,9 @@ class Worker(mp.Process):
 
             total_step += 1
 
-        self.res_queue.put(None)
+            if nrow == 20 and ncol == 20 and n_to_win == 5:
+                self.g_elo.value = ELO(challenger_elo=self.g_elo.value, critic_elo=base_elo, challenger=self.gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
+                self.res_queue.put([self.g_elo.value])
 
 def main(logger, save_base_path, gnet, opt):
     global_elo, res_queue = mp.Value('d', 100.), mp.Queue()
@@ -375,6 +386,8 @@ def main(logger, save_base_path, gnet, opt):
 
         if r == None:
             break    
+        elif len(r) == 0:
+            logger.log({"elo": r[0]})
         
         train_loss, train_accuracy, current_elo, total_step, scenario_turn, name  = r
 
@@ -383,9 +396,9 @@ def main(logger, save_base_path, gnet, opt):
             save_path = save_base_path / f"ckpt/epoch-{total_step}-{scenario_turn}-{name}.pkl"
             print(f"Save in {save_path}")
             torch.save({"model": gnet.state_dict(), "optim": opt.state_dict()}, save_path)
-
+            
         if log:    
-            logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": current_elo})
+            logger.log({"train/loss": train_loss, "train/acc": train_accuracy})
     [w.join() for w in workers]
 
 def normal_train(logger, save_base_path, gnet, opt):
@@ -420,35 +433,40 @@ def normal_train(logger, save_base_path, gnet, opt):
             train_loss, train_accuracy = training_one_epoch(train_loader, gnet, opt, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
             # test_loss, test_accuracy = training_one_epoch(test_loader, model, optimizer, False, epoch, nrow=nrow, ncol=ncol)
 
-            if (scenario_turn+1) % eval_term == 0:
+            if (scenario_turn+1) % eval_term == 0 and n_to_win == 5:
                 model_elo = ELO(challenger_elo=model_elo, critic_elo=base_elo, challenger=gnet, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
 
             if log:
                 logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
 
-            if (scenario_turn+1) % save_term == 0:
-                save_path = save_base_path / f"ckpt/epoch-{epoch}-{scenario_turn}.pkl"
-                torch.save({"model": gnet.state_dict(), "optim": opt.state_dict()}, save_path)
-            
-            print(f"{epoch}/{scenario_turn}th EPOCH DONE!! ---- Train: {train_loss}")
+        if (epoch+1) % save_term == 0:
+            save_path = save_base_path / f"ckpt/epoch-{epoch}-{scenario_turn}.pkl"
+            torch.save({"model": gnet.state_dict(), "optim": opt.state_dict()}, save_path)
+        
+        print(f"{epoch}/{scenario_turn}th EPOCH DONE!! ---- Train: {train_loss}")
 
 
 
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
-    channels = [2, 64, 128, 256, 128, 64, 32, 1]
-    dropout = 0.5
-    # model = PolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
-    # model.to(device)
-    model = load_base(game_info, first_channel=2, device=device, ckp_path=ckp)
+    # channels = [2, 64, 128, 256, 128, 64, 32, 1]
+    # channels = [2, 64, 128, 64, 1]
+    channels = [2, 4, 128, 64, 32, 1]
+    dropout = 0.2
+    model = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
+    model.to(device)
+    # model = load_base(game_info, first_channel=2, device=device, ckp_path=ckp)
     model.share_memory()
 
     # agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
 
-    optimizer_ckp = torch.load(ckp, map_location=torch.device(device))["optim"]
-    optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
-    optimizer.load_state_dict(optimizer_ckp)
+    # optimizer_ckp = torch.load(ckp, map_location=torch.device(device))["optim"]
+    # optimizer.load_state_dict(optimizer_ckp)
+    if is_mp:
+        optimizer = SharedAdam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas=(0.92, 0.999))
     total_parameters = get_total_parameters(model)
     print(total_parameters)
 

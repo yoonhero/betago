@@ -23,7 +23,7 @@ from gomu.viz import tensor2gomuboard
 
 from data_utils import GOMUDataset
 
-def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.01):
+def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
     # cross_loss = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
     # bce = nn.BCELoss()
@@ -65,6 +65,8 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
                 net.train()
                 policy, value = net(X)
                 loss = get_loss(policy, value, Y, win, nrow, ncol)
+
+                print(loss)
 
                 optimizer.zero_grad()
                 loss.backward()

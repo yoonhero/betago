@@ -78,4 +78,3 @@ if __name__ == "__main__":
     base_model = load_base(game_info=game_info, device=device, ckp_path="./models/")
 
     print(ELO(500, 500, base_model, 20, game_info=game_info, device=device))
-    

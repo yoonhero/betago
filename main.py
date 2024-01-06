@@ -10,7 +10,7 @@ from gomu.gomuku.gui import GomokuGUI
 from gomu.bot import *
 from gomu.algorithms import *
 
-from gomu.base import PolicyValueNet
+from gomu.base import PolicyValueNet, NewPolicyValueNet
 
 is_gui = os.getenv("GUI")
 device = os.getenv("DEVICE", "mps") # cuda | cpu | mps
@@ -20,9 +20,9 @@ max_depth = int(os.getenv("MAX_DEPTH", 3))
 first_channel = int(os.getenv("FIRST_CHAN", 2)) # default is 2 | history_size + 2
 
 # Gomu Board
-nrow = 20
-ncol = 20
-n_to_win = 5
+nrow = 3
+ncol = 3
+n_to_win = 3
 game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 # Load Agent
@@ -74,5 +74,5 @@ if not is_gui:
         print("Bot Thinking was completed.")
         print(board)
 else:
-    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=45)
+    game = GomokuGUI(rows=nrow, cols=ncol, n_to_win=n_to_win, bot=bot, size=100)
     game.play()
