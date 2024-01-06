@@ -422,7 +422,7 @@ if __name__ == "__main__":
 
     # channels = [2, 64, 128, 256, 128, 64, 32, 1]
     # channels = [2, 64, 128, 64, 1]
-    channels = [3, 64, 128, 256, 128, 64, 32, 1]
+    channels = [3, 64, 128, 64, 32, 1]
     dropout = 0.2
     model = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
     model.to(device)

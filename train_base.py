@@ -100,16 +100,18 @@ if __name__ == "__main__":
     resuming = bool(int(os.getenv("RESUME", "0")))
     load_path = os.getenv("CKPT")
     save_term = int(os.getenv("SAVE_TERM", 1))
+    device = os.getenv("DEVICE", "mps")
+    save_dir = os.getenv("SAVE", "./tmp")
 
     total_samples = 10000
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    # device = "mps" if torch.backends.mps.is_available() else "cpu"
     full_dataset = GOMUDataset(total_samples, device=device)
     train_size = int(0.8 * len(full_dataset))
     test_size = len(full_dataset) - train_size
     train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
 
     # batch_size = 256
-    batch_size = 512
+    batch_size = 4086
     train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size, shuffle=False, drop_last=True)
 
@@ -125,7 +127,7 @@ if __name__ == "__main__":
     # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
     # learning_rate = 0.001
     learning_rate = 0.001
-    optimizer = optim.Adam(net.parameters(), lr=learning_rate, weight_decay=0.1)
+    optimizer = optim.Adam(net.parameters(), lr=learning_rate)
     total_parameters = get_total_parameters(net)
     print(total_parameters)
 
@@ -135,7 +137,7 @@ if __name__ == "__main__":
         net.load_state_dict(state_dict=checkpoint["model"])
         optimizer.load_state_dict(state_dict=checkpoint["optim"])
 
-    save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
+    save_base_path = Path(f"{save_dir}/history_{int(time.time()*1000)}")
     save_base_path.mkdir(exist_ok=True)
     (save_base_path / "ckpt").mkdir(exist_ok=True)
     (save_base_path / "evalresults").mkdir(exist_ok=True)
