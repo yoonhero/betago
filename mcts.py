@@ -343,7 +343,7 @@ class Worker(mp.Process):
         self.save_base_path = save_base_path
 
         # self.lnet = load_base(game_info=game_info, first_channel=2, device=device, ckp_path=ckp)
-        self.lnet = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.5)
+        self.lnet = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=0.5).to(device)
         agent = EGreedyAgent(model=self.lnet, device=device, n_to_win=n_to_win, with_history=False)
         self.updated = []
         self.mcts_graph = GGraph()
