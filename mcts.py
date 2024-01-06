@@ -79,7 +79,7 @@ class EGreedyAgent(PytorchAgent):
         circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow)
 
         policy, value = self.model_predict(board_state)
-        policy *= circular_zone
+        policy *= torch.from_numpy(circular_zone).to(torch.float32).to(self.device)
         policy = torch.softmax(policy, 1).squeeze(0).cpu()
         not_free_space = self.get_not_free_space(board_state=board_state)
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32).unsqueeze(0)
