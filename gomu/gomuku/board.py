@@ -104,7 +104,7 @@ class GoMuKuBoard():
         return GoMuKuBoard.is_game_done(board_state=self._board, turn=turn, n_to_win=self.n_to_win)
         
     def is_draw(self):
-        return self.total_empty() == 0
+        return self.total_empty() == 0 and not self.is_gameover()
 
     @staticmethod
     def viz(board_state):

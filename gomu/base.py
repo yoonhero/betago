@@ -269,6 +269,7 @@ class ResBlock(nn.Module):
         out = out + residual
         out = self.activation(out)
         return out
+    
 
 class PolicyValueNet(nn.Module):
     def __init__(self, nrow, ncol, channels, dropout):
@@ -279,20 +280,10 @@ class PolicyValueNet(nn.Module):
         self.convs = nn.ModuleList()
 
         for inp, oup in zip(channels, channels[1:]):
-            # => half
             hidden_dim = inp * 3
-
-            # conv = ResBlock(inp, hidden_dim, inp)
             conv = ResBlock(inp, hidden_dim, oup, dropout=dropout)
             self.convs.append(conv)
 
-            #downsample = ResBlock(inp, hidden_dim, oup, stride=2)
-            #self.convs.append(downsample)
-
-        # #2. Without downsampling??
-        # scale = 2**(len(channels) - 1)
-        # final_row, final_col = self.nrow / scale, self.ncol / scale
-        # final = int(final_row * final_col * channels[-1])
         final = nrow * ncol * channels[-1]
         self.conv1x = nn.Sequential(
             nn.Conv2d(channels[-1], channels[-1], 1, 1, 0),
@@ -324,12 +315,81 @@ class PolicyValueNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        # tmp = deepcopy(x)
         for conv in self.convs:
             x = conv(x)
         
         policy = self.conv1x(x)
         value = self.ff(x)
+
+        return policy, value
+
+class NewPolicyValueNet(nn.Module):
+    def __init__(self, nrow, ncol, channels, dropout):
+        super().__init__()
+        self.nrow = nrow
+        self.ncol = ncol
+
+        self.convs = nn.ModuleList()
+        # self.exp = nn.ModuleList()
+        # self.fd = nn.ModuleList()
+
+        # max_chan = max(channels)
+        # middle = nrow * ncol * max_chan
+        # self.bottleneck = nn.Sequential(
+        #     Rearrange("b c h w -> b (c h w)"),
+        #     # nn.Linear(final, final),
+        #     nn.Linear(middle, middle*3),
+        #     nn.ReLU(),
+        #     nn.Linear(middle*3, middle), 
+        #     nn.ReLU(),
+        #     Rearrange("b (c h w) -> b c h w", c=max_chan, h=nrow, w=ncol)
+        # )
+
+        for inp, oup in zip(channels, channels[1:]):
+            hidden_dim = inp * 3
+            conv = ResBlock(inp, hidden_dim, oup, dropout=dropout)
+
+            self.convs.append(conv)
+
+        final = nrow * ncol * channels[-1]
+
+        self.ff = nn.Sequential(
+            Rearrange("b c h w -> b (c h w)"),
+            nn.Linear(final, final),
+            nn.ReLU()
+        )
+
+        self.pi_conv = nn.Sequential(
+            Rearrange("b (c h w) -> b c h w", c=channels[-1], h=nrow, w=ncol),
+            nn.Conv2d(channels[-1], channels[-1], 1, 1, 0), 
+        )
+
+        self.val_ff = nn.Sequential(
+            nn.Linear(final, 1),
+            nn.Sigmoid()
+        )
+
+        self._intialize_weights()
+
+    def _intialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        for conv in self.convs:
+            x = conv(x)
+        x = self.ff(x)
+        policy = self.pi_conv(x)
+        value = self.val_ff(x)
 
         # Masking was bad.
         # if self.train:
@@ -346,9 +406,18 @@ def get_total_parameters(net):
 
 if __name__ == "__main__":
     # net = Unet(20, 20, [2, 5, 10])
-    channels = [2, 64, 128, 256, 128, 64, 32, 1]
-    net = PolicyValueNet(20, 20, channels, 0)
+    channels = [2, 4, 128, 64, 32, 1]
+    net = NewPolicyValueNet(20, 20, channels, 0)
+    print(get_total_parameters(net))
     # print(net/.total())
     to_feed = torch.zeros((10, 2, 20, 20))
     # print(net(to_feed))
-    print(net(to_feed))
+
+    from torch.profiler import profile, record_function, ProfilerActivity
+
+    with profile(activities=[ProfilerActivity.CPU], profile_memory=True, record_shapes=True) as prof:
+        with record_function("model_inference"):
+            net(to_feed)
+
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+    prof.export_chrome_trace("../trace.json")

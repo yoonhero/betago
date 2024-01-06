@@ -196,7 +196,6 @@ class PytorchAgent(Agent):
         try:
             selected_policy = torch.multinomial(topk_policy_values/temperature, num_samples=top_k)
         except:
-            print(topk_policy_values)
             raise NanError
         policies = torch.gather(topk_policy_indices, 1, selected_policy)
         # _, policies = torch.topk(policy, top_k, -1)

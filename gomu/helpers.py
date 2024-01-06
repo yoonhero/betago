@@ -6,7 +6,8 @@ class GameInfo:
         self.ncol = ncol
         self.n_to_win = n_to_win
     def __call__(self):
-        return {"nrow": self.nrow, "ncol": self.ncol, "n_to_win": self.n_to_win}
+        # return {"nrow": self.nrow, "ncol": self.ncol, "n_to_win": self.n_to_win}
+        return [self.nrow, self.ncol, self.n_to_win]
 
 class DEBUGSign():
     value: int
