@@ -134,7 +134,7 @@ class PytorchAgent(Agent):
         _, ncol, nrow = state.shape
 
         if isinstance(state, np.ndarray):
-            state = preprocess_state(state, self.prev).to(self.device)
+            state = preprocess_state(state, prev=self.prev).to(self.device)
         
         if self.with_history:
             if history == None:

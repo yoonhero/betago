@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
     nrow, ncol = 20, 20
     # channels = [2, 8, 36]
-    channels = [3, 64, 128, 256, 128, 64, 32, 1]
+    channels = [3, 64, 128, 64, 32, 1]
     #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
     dropout = 0.2
     net = NewPolicyValueNet(nrow, ncol, channels, dropout=dropout).to(device)

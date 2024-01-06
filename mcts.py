@@ -16,7 +16,7 @@ import torch.optim as optim
 import torch.multiprocessing as mp
 from einops import rearrange
 
-from gomu.gomuku import board
+from gomu.gomuku import GoMuKuBoard 
 from gomu.base import PolicyValueNet, NewPolicyValueNet, get_total_parameters
 from gomu.bot import *
 from gomu.game_tree import Graph
@@ -76,8 +76,10 @@ class EGreedyAgent(PytorchAgent):
         return 1 / (1+np.exp(-0.2*n))
     
     def get_policy_and_value(self, board_state):
-        policy, value = self.model_predict(board_state)
+        circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow)
 
+        policy, value = self.model_predict(board_state)
+        policy *= circular_zone
         policy = torch.softmax(policy, 1).squeeze(0).cpu()
         not_free_space = self.get_not_free_space(board_state=board_state)
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32).unsqueeze(0)
@@ -140,7 +142,7 @@ class MCTSNode():
             action = self.board_env.format_pos(i)
             if prob > 0:
                 child_state = self.state.copy()
-                child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=get_turn(child_state))
+                child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=0)
                 child_state = GoMuKuBoard.change_perspective(child_state)
                 
                 child_node = MCTSNode(child_state, parent=self, action=action, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env, prior=prob, args=self.args)
@@ -182,12 +184,12 @@ class MCTSNode():
         return f"MCTSNode(root)"
     
 class MCTS(Graph):
-    def __init__(self, agent, args):
+    def __init__(self, agent, board_env, args):
         self.graph = defaultdict(list)
         self._data = {}
         self.graph = defaultdict(list)
         self.agent: EGreedyAgent = agent
-        self.board_env = GoMuKuBoard(nrow, ncol, n_to_win)
+        self.board_env: GoMuKuBoard = board_env
         self.args = args
 
     def set_root(self, root_node): self._data[root_node.id] = root_node
@@ -202,7 +204,7 @@ class MCTS(Graph):
             while node.is_fully_expanded():
                 node = node.best_child()
             
-            value, is_terminal = self.board_env.get_value_and_terminated(node.state, get_turn(node.state))
+            value, is_terminal = self.board_env.get_value_and_terminated(node.state, 1)
 
             if not is_terminal:
                 policy, value = self.agent.get_policy_and_value(node.state)
@@ -215,11 +217,13 @@ class MCTS(Graph):
         for child in root.childrens:
             col, row = child.action
             action_probs[0, row, col] = child.visit_count
+        if (action_probs == 0).all():
+            raise Exception
+            return torch.ones_like(action_probs) / (action_probs==0).sum()
         action_probs /= action_probs.sum()
-
     
-        if DEBUG >= 3:
-            self.viz(root).view()
+        # if DEBUG >= 3:
+        #     self.viz(root).view()
 
         return action_probs
 
@@ -229,7 +233,8 @@ class Zero():
         self.optimizer = optimizer
         self.args = args
         self.agent: EGreedyAgent = agent
-        self.mcts = MCTS(agent, args)
+        self.board_env = GoMuKuBoard(nrow, ncol, n_to_win)
+        self.mcts = MCTS(agent, self.board_env, args)
         self.device = device
         self.save_base_path = save_base_path
         self.logger = logger
@@ -246,12 +251,12 @@ class Zero():
             memory.append((initial_state, action_probs, player))
             
             action = torch.multinomial(action_probs.view(-1), num_samples=1)
-            action = self.board_env.format_pos(action)
+            action = self.board_env.format_pos(action.item())
 
-            state = self.agent.get_new_board_state(board_state=initial_state, next_pos=action, my_turn=player)
+            state = self.agent.get_new_board_state(board_state=initial_state, next_pos=action, my_turn=0)
 
-            value, is_terminal = self.board_env.get_value_and_terminated(state)
-
+            value, is_terminal = self.board_env.get_value_and_terminated(state, 0)
+            
             if is_terminal:
                 return_memory = []
                 for hist_state, hist_action_probs, hist_player in memory:

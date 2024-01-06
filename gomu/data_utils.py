@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 import einops
 
 # Always first element is me~
-def preprocess_state(state, prev=True):
+def preprocess_state(state, value=None, prev=True):
     if prev:
         _state = state
     else:
@@ -19,7 +19,10 @@ def preprocess_state(state, prev=True):
     total_WHITE = torch_state[1].sum()
     if total_BLACK > total_WHITE:
         torch_state = torch.roll(torch_state, 1, 0)
+        if value: value = -value
 
+    if value:
+        return torch_state, value
     return torch_state
 
 class GOMUDataset(Dataset):
@@ -71,11 +74,12 @@ class GOMUDataset(Dataset):
         # to_get_idx = idx*12+randomnum
         board, next_pos, game_result, prev_move = self.board_state[idx], self.next_pos[idx], self.winner[idx], self.prev_moves[idx]
         # BLACK: 1, WHITE: -1: DRAW=0
-        x, y = preprocess_state(board),torch.from_numpy(next_pos)
+        x, z = preprocess_state(board, z)
+        y = torch.from_numpy(next_pos)
 
         # WIN: 1 | DRAW: 0 | LOSE: -1
         # game_result = (game_result+1)/2
-        game_result = torch.from_numpy(game_result)
+        game_result = torch.from_numpy(z)
 
         # IMG [B, C, H, W]
         y = einops.rearrange(y, "h w -> 1 h w")

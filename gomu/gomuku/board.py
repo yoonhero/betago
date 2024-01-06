@@ -121,7 +121,6 @@ class GoMuKuBoard():
         score = 0
         if win:
             score = 1
-        
         return score, draw or win
     
     def format_pos(self, idx):
