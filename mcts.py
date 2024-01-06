@@ -115,6 +115,9 @@ class GGraph(Graph):
     @property
     def data(self): return self._data
 
+def get_turn(board_state):
+    return int(board_state.sum()%2)
+
 class MCTSNode():
     def __init__(self, state, mcts_graph, agent, args, action=None, prior=0, parent=None, board_env=None):
         self.state = state
@@ -137,7 +140,7 @@ class MCTSNode():
             action = self.board_env.format_pos(i)
             if prob > 0:
                 child_state = self.state.copy()
-                child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=self.turn)
+                child_state = self.agent.get_new_board_state(board_state=child_state, next_pos=action, my_turn=get_turn(child_state))
                 child_state = GoMuKuBoard.change_perspective(child_state)
                 
                 child_node = MCTSNode(child_state, parent=self, action=action, updated=self.updated, mcts_graph=self.mcts_graph, agent=self.agent, board_env=self.board_env, prior=prob)
@@ -199,7 +202,7 @@ class MCTS(Graph):
             while node.is_fully_expanded():
                 node = node.best_child()
             
-            value, is_terminal = self.board_env.get_value_and_terminated(node.state, int(node.state.sum()%2))
+            value, is_terminal = self.board_env.get_value_and_terminated(node.state, get_turn(node.state))
 
             if not is_terminal:
                 policy, value = self.agent.get_policy_and_value(node.state)
