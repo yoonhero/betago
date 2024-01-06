@@ -211,11 +211,11 @@ class MCTS(Graph):
             
             node.backpropagate(value)
 
-        action_probs = np.zeros((1, 20, 20))
+        action_probs = torch.zeros((1, 20, 20))
         for child in root.childrens:
             col, row = child.action
             action_probs[0, row, col] = child.visit_count
-        action_probs /= np.sum(action_probs)
+        action_probs /= action_probs.sum()
 
     
         if DEBUG >= 3:
