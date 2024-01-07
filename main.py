@@ -28,7 +28,7 @@ game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 # Load Agent
 ckp_path = os.getenv("LOAD", "./models/1224-256.pkl")
-first_channel = int(os.getenv("FIRST_CHAN", 2))
+first_channel = int(os.getenv("FIRST_CHAN", 3))
 with_history = first_channel != 3
 
 if module_type == "old":
@@ -38,7 +38,7 @@ else:
 
 model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module)
 
-base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
+base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history, "prev": False}
 
 if "random" in bot_type:
     bot = RandomMover(n_to_win=n_to_win)

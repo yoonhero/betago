@@ -19,12 +19,13 @@ from .data_utils import preprocess_state
 
 # @lru_cache()
 @loading
-def load_base(game_info: GameInfo, first_channel=2, device="mps", ckp_path="./models/1224-256.pkl", module=PolicyValueNet):
+def load_base(game_info: GameInfo, channels=None, device="mps", ckp_path="./models/1224-256.pkl", module=PolicyValueNet):
     nrow, ncol = game_info.nrow, game_info.ncol
     # if device == "cpu" or device == "mps":
     checkpoint = torch.load(ckp_path, map_location=torch.device(device))["model"]
     # else: checkpoint = torch.load(ckp_path)["model"]
-    channels = [first_channel, 64, 128, 256, 128, 64, 32, 1]
+    if not channels:
+        channels = [2, 64, 128, 256, 128, 64, 32, 1]
     model = module(nrow=nrow, ncol=ncol, channels=channels, dropout=0.0)
     model.load_state_dict(checkpoint)
     model.eval()

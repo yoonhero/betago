@@ -74,7 +74,7 @@ class GOMUDataset(Dataset):
         # to_get_idx = idx*12+randomnum
         board, next_pos, game_result, prev_move = self.board_state[idx], self.next_pos[idx], self.winner[idx], self.prev_moves[idx]
         # BLACK: 1, WHITE: -1: DRAW=0
-        x, z = preprocess_state(board, game_result)
+        x, z = preprocess_state(board, game_result, prev=False)
         y = torch.from_numpy(next_pos)
 
         # WIN: 1 | DRAW: 0 | LOSE: -1

@@ -33,8 +33,8 @@ def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
     y = GT.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
     cross_en_loss = -(y * torch.log(ypred)).sum(1).mean()
     # Boost the uniform.
-    entropy_loss = -(ypred * torch.log(ypred)).sum(1).mean()
-    policy_loss = cross_en_loss + exploration_rate * entropy_loss
+    # entropy_loss = -(ypred * torch.log(ypred)).sum(1).mean()
+    policy_loss = cross_en_loss
 
     # Value MSE
     value_loss = mse(value, win)
@@ -117,7 +117,7 @@ if __name__ == "__main__":
 
     nrow, ncol = 20, 20
     # channels = [2, 8, 36]
-    channels = [3, 64, 128, 64, 32, 1]
+    channels = [3, 64, 128, 256, 128, 64, 1]
     #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
     dropout = 0.2
     net = NewPolicyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
