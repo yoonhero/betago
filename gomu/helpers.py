@@ -37,3 +37,5 @@ models_channels = {
     "old": [2, 64, 128, 256, 128, 64, 32, 1],
     "new": [2, 64, 128, 64, 32, 1]
 }
+
+base_game_info = GameInfo(20, 20, 5)

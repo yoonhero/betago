@@ -43,7 +43,7 @@ def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
 
 def save_result(x, y, policy, save_base_path, nrow, ncol, epoch, train=True):
     pred_pos_pil = tensor2gomuboard(policy, nrow, ncol, softmax=True, scale=10)
-    concatenated = x[0]-x[2]
+    concatenated = x[0]-x[-1]
     ground_true_pil = tensor2gomuboard(2*(y!=0)+concatenated, nrow, ncol)
     if train:
         eval_result_path = save_base_path / f"trainresults/{epoch}-pred.png"
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     device = os.getenv("DEVICE", "mps")
     save_dir = os.getenv("SAVE", "./tmp")
 
-    total_samples = 10000
+    total_samples = 14000
     # device = "mps" if torch.backends.mps.is_available() else "cpu"
     full_dataset = GOMUDataset(total_samples, device=device)
     train_size = int(0.8 * len(full_dataset))
@@ -117,9 +117,9 @@ if __name__ == "__main__":
 
     nrow, ncol = 20, 20
     # channels = [2, 8, 36]
-    channels = [3, 64, 128, 256, 128, 64, 1]
+    channels = [2, 64, 128, 256, 128, 64, 1]
     #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
-    dropout = 0.2
+    dropout = 0.5
     net = NewPolicyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
 
     # net = torch.compile(not_compiled)

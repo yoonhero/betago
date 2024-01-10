@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.signal import convolve2d
 import torch
+import torch.nn.functional as F
 
 from ..viz import tensor2gomuboard
 from ..helpers import DEBUG
@@ -122,6 +123,12 @@ class GoMuKuBoard():
         if win:
             score = 1
         return score, draw or win
+    
+    def get_padded_board(self, nrow):
+        # _tmp_board = torch.from_numpy(self.board)
+        # return F.pad(_tmp_board, (0, nrow-self.ncol, 0, nrow-self.row), "constant", 0)
+        pad_col, pad_row = nrow - self.ncol, nrow - self.nrow
+        return np.pad(self.board, ((0, 0), (0, pad_col), (0, pad_row)))
     
     def format_pos(self, idx):
         return (idx%self.ncol, idx//self.ncol)

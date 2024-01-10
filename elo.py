@@ -5,12 +5,12 @@ import tqdm
 import os
 
 from gomu.base import NewPolicyValueNet
-from gomu.helpers import DEBUG, GameInfo
+from gomu.helpers import DEBUG, GameInfo, base_game_info
 from gomu.gomuku import GoMuKuBoard
 from gomu.bot import load_base, PytorchAgent, Agent
 from gomu.algorithms import *
 
-def simulate(agent1, agent2, game_info: GameInfo):
+def simulate(agent1, agent2, game_info: GameInfo, first=None):
     turn = 0
     nrow, ncol, n_to_win = game_info.nrow, game_info.ncol, game_info.n_to_win
     board = GoMuKuBoard(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
@@ -21,8 +21,14 @@ def simulate(agent1, agent2, game_info: GameInfo):
         else:
             agent: PytorchAgent = agent2
 
-        # Stochastical Variation.
-        next_pos, _ = agent(board.board, turn=turn)
+        board_state = board.board
+        if first != None and int(not first) - turn == 0:
+            board_state = board.get_padded_board(20)
+            attention_mask = torch.zeros((1, 20, 20))
+            attention_mask[:, :nrow, :ncol] = 1
+            attention_mask = attention_mask.view(1, -1)
+        else: attention_mask = None
+        next_pos, _ = agent(board_state, turn=turn, attention_mask=attention_mask)
         col, row = next_pos
         board.set(col, row)
         
@@ -41,12 +47,12 @@ def simulate(agent1, agent2, game_info: GameInfo):
         turn = 1 - turn
 
 # challenger: pytorch model or agent module.
-def ELO(challenger_elo, critic_elo, challenger, total_play, game_info: GameInfo, device, op_ckp="./models/1224-256.pkl", k=16):
+def ELO(challenger_elo, critic_elo, challenger, total_play, game_info: GameInfo, device, op_ckp="./models/1224-256.pkl", k=16, padded=False):
     nrow, ncol, n_to_win = game_info.nrow, game_info.ncol, game_info.n_to_win
 
     result = 0
 
-    base = load_base(game_info=game_info, device=device, ckp_path=op_ckp)
+    base = load_base(game_info=base_game_info, device=device, ckp_path=op_ckp)
     critic_agent = PytorchAgent(base, device=device, n_to_win=n_to_win, with_history=False)
     if isinstance(challenger, Agent):
         challenger_agent = challenger
@@ -60,7 +66,11 @@ def ELO(challenger_elo, critic_elo, challenger, total_play, game_info: GameInfo,
             agent = {"agent1": critic_agent, "agent2": challenger_agent}
         else:
             agent = {"agent1": challenger_agent, "agent2": critic_agent}
-        game_result = simulate(**agent, game_info=game_info)
+
+        if padded:
+            game_result = simulate(**agent, game_info=game_info)
+        else:
+            game_result = simulate(**agent, game_info=game_info, first=not bool(challenger_turn))
 
         result += game_result[1-challenger_turn]
 

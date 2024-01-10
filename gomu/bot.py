@@ -156,7 +156,7 @@ class PytorchAgent(Agent):
             new_board_state[my_turn, row, col] = 1
             return new_board_state
     
-    def predict_next_pos(self, board_state, top_k, temperature=1, best=False, history=None):
+    def predict_next_pos(self, board_state, top_k, temperature=1, best=False, history=None, attention_mask=None):
         # assert top_k >= 3, "Please top_k is greater than 3."
         policy, value = self.model_predict(board_state, history=history)
 
@@ -173,6 +173,8 @@ class PytorchAgent(Agent):
 
         policy = policy.view(B, -1).softmax(-1)
         policy = policy * not_possible.view(B, -1)
+        if attention_mask != None:
+            policy *= attention_mask
             
         # indices = torch.arange(policy.shape[-1]).repeat(B, 1)
         if best:
@@ -192,8 +194,8 @@ class PytorchAgent(Agent):
         # else:
             # return predicted_pos, value
 
-    def forward(self, board_state, top_k=1, **kwargs):
-        next_poses, value = self.predict_next_pos(board_state, top_k=top_k)
+    def forward(self, board_state, top_k=1, attention_mask=None, **kwargs):
+        next_poses, value = self.predict_next_pos(board_state, top_k=top_k, attention_mask=attention_mask)
         return next_poses[0], value.cpu().item()
 
 

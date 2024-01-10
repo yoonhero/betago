@@ -42,8 +42,8 @@ max_turn = 2
 model_elo = 100
 base_elo = 500
 
-games = {"ttt": GameInfo(nrow=3, ncol=3, n_to_win=3), "gomu": GameInfo(20, 20, 5)}
-game_info = games["gomu"]
+games = {"ttt": GameInfo(nrow=7, ncol=7, n_to_win=5), "gomu": GameInfo(20, 20, 5)}
+game_info = games["ttt"]
 nrow, ncol, n_to_win = game_info()
 
 zero_state = np.zeros((2, nrow, ncol))
@@ -213,7 +213,7 @@ class MCTS(Graph):
             
             node.backpropagate(value)
 
-        action_probs = torch.zeros((1, 20, 20))
+        action_probs = torch.zeros((1, nrow, ncol))
         for child in root.childrens:
             col, row = child.action
             action_probs[0, row, col] = child.visit_count
@@ -261,6 +261,7 @@ class Zero():
                 return_memory = []
                 for hist_state, hist_action_probs, hist_player in memory:
                     hist_outcome = value if hist_player == player else -value
+                    hist_outcome = torch.tensor([hist_outcome])
                     return_memory.append((hist_state, hist_action_probs, hist_outcome))
                 return return_memory
 
@@ -286,7 +287,8 @@ class Zero():
                 train_loss, train_accuracy = self.train(memory, epoch=self.args["num_epochs"] * iteration + epoch)
 
                 if (epoch+1) % eval_term == 0 and n_to_win == 5:
-                    model_elo = ELO(challenger_elo=model_elo, critic_elo=base_elo, challenger=self.model, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp)
+                    global model_elo
+                    model_elo = ELO(challenger_elo=model_elo, critic_elo=base_elo, challenger=self.model, total_play=TOTAL_ELO_SIM, game_info=game_info, device=device, op_ckp=ckp, padded=nrow==20)
 
                 if log:
                     self.logger.log({"train/loss": train_loss, "train/acc": train_accuracy, "elo": model_elo})
@@ -409,7 +411,7 @@ def main(logger, save_base_path, gnet, opt):
     [w.join() for w in workers]
 
 def normal_train(logger, save_base_path, gnet, opt, args):
-    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, prev=False, with_history=False)
+    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, prev=True, with_history=False)
 
     zero = Zero(model=gnet, optimizer=opt, agent=agent, args=args, device=device, save_base_path=save_base_path, logger=logger)
 
@@ -418,11 +420,11 @@ def normal_train(logger, save_base_path, gnet, opt, args):
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
-    args = {"C": 2, "num_searches": 60, "num_iterations": 100, "num_self_play_iterations": 500, "num_epochs": 5}
+    args = {"C": 2, "num_searches": 60, "num_iterations": 100, "num_self_play_iterations": 100, "num_epochs": 5}
 
     # channels = [2, 64, 128, 256, 128, 64, 32, 1]
     # channels = [2, 64, 128, 64, 1]
-    channels = [3, 64, 128, 64, 32, 1]
+    channels = [2, 64, 128, 64, 32, 1]
     dropout = 0.2
     model = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
     model.to(device)
