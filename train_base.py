@@ -126,7 +126,7 @@ if __name__ == "__main__":
 
     # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
     # learning_rate = 0.001
-    learning_rate = 0.001
+    learning_rate = 3e-4
     optimizer = optim.Adam(net.parameters(), lr=learning_rate)
     total_parameters = get_total_parameters(net)
     print(total_parameters)

@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python
 # MCTS Alpha-Zero Implementatino on GO.
 import uuid
 import os
@@ -42,8 +42,8 @@ max_turn = 2
 model_elo = 100
 base_elo = 500
 
-games = {"ttt": GameInfo(nrow=7, ncol=7, n_to_win=5), "gomu": GameInfo(20, 20, 5)}
-game_info = games["ttt"]
+games = {"small": GameInfo(nrow=7, ncol=7, n_to_win=5), "gomu": GameInfo(20, 20, 5), "tictactoe": GameInfo(3, 3, 3)}
+game_info = games["tictactoe"]
 nrow, ncol, n_to_win = game_info()
 
 zero_state = np.zeros((2, nrow, ncol))
@@ -76,11 +76,11 @@ class EGreedyAgent(PytorchAgent):
         return 1 / (1+np.exp(-0.2*n))
     
     def get_policy_and_value(self, board_state):
-        circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow)
+        circular_zone = make_circular_heatmap(ncol=ncol, nrow=nrow) * 2
 
         policy, value = self.model_predict(board_state)
-        policy *= torch.from_numpy(circular_zone).to(torch.float32).to(self.device)
         policy = torch.softmax(policy, 1).squeeze(0).cpu()
+        policy *= torch.from_numpy(circular_zone).to(torch.float32).to(self.device)
         not_free_space = self.get_not_free_space(board_state=board_state)
         not_possible = torch.from_numpy(not_free_space).to(dtype=torch.float32).unsqueeze(0)
         policy *= (1-not_possible)
@@ -162,12 +162,14 @@ class MCTSNode():
         if child.visit_count == 0:
             q_value = 0
         else:
-            q_value = 1 - ((child.value_sum / child.visit_count) + 1) / 2
+            q_value = ((child.value_sum / child.visit_count) + 1) / 2
         # ucb_score = self.q() / (self.n()+1) + c * math.sqrt(2 * math.log(self.parent.n()) / (self.n()+2))
         return q_value + self.args["C"] * (math.sqrt(self.visit_count) / (child.visit_count + 1)) * child.prior
     
     def best_child(self):
         choices_weight = [self.score(children) for children in self.childrens]
+        # print(choices_weight)
+        # print(np.argmax(choices_weight))
         return self.childrens[np.argmax(choices_weight)]
     
     def backpropagate(self, value):
@@ -210,7 +212,7 @@ class MCTS(Graph):
                 policy, value = self.agent.get_policy_and_value(node.state)
                 
                 node.expand(policy)
-            
+        
             node.backpropagate(value)
 
         action_probs = torch.zeros((1, nrow, ncol))
@@ -411,7 +413,7 @@ def main(logger, save_base_path, gnet, opt):
     [w.join() for w in workers]
 
 def normal_train(logger, save_base_path, gnet, opt, args):
-    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, prev=True, with_history=False)
+    agent = EGreedyAgent(model=gnet, device=device, n_to_win=n_to_win, with_history=False)
 
     zero = Zero(model=gnet, optimizer=opt, agent=agent, args=args, device=device, save_base_path=save_base_path, logger=logger)
 
@@ -420,7 +422,7 @@ def normal_train(logger, save_base_path, gnet, opt, args):
 if __name__ == "__main__":
     mp.set_start_method('spawn')
 
-    args = {"C": 2, "num_searches": 60, "num_iterations": 100, "num_self_play_iterations": 100, "num_epochs": 5}
+    args = {"C": 0.1, "num_searches": 60, "num_iterations": 100, "num_self_play_iterations": 100, "num_epochs": 5}
 
     # channels = [2, 64, 128, 256, 128, 64, 32, 1]
     # channels = [2, 64, 128, 64, 1]

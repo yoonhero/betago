@@ -21,24 +21,23 @@ first_channel = int(os.getenv("FIRST_CHAN", 2)) # default is 2 | history_size + 
 module_type = os.getenv("MOD", "new")
 
 # Gomu Board
-nrow = 20
-ncol = 20
+nrow = 7
+ncol = 7
 n_to_win = 5
 game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
 
 # Load Agent
 ckp_path = os.getenv("LOAD", "./models/1224-256.pkl")
-first_channel = int(os.getenv("FIRST_CHAN", 3))
-with_history = first_channel != 3
+with_history = first_channel != 2
 
 if module_type == "old":
     module = PolicyValueNet
 else:
     module = NewPolicyValueNet
 
-model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module)
+model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module, channels=[2, 64, 128, 64, 32, 1])
 
-base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history, "prev": False}
+base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 
 if "random" in bot_type:
     bot = RandomMover(n_to_win=n_to_win)
