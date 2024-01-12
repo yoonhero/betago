@@ -4,7 +4,7 @@ import os
 import torch
 import time
 
-from gomu.helpers import DEBUG
+from gomu.helpers import DEBUG, Games
 from gomu.gomuku import GoMuKuBoard
 from gomu.gomuku.gui import GomokuGUI
 from gomu.bot import *
@@ -19,15 +19,17 @@ max_vertex = int(os.getenv("MAX_VERTEX", 3))
 max_depth = int(os.getenv("MAX_DEPTH", 3))
 first_channel = int(os.getenv("FIRST_CHAN", 2)) # default is 2 | history_size + 2
 module_type = os.getenv("MOD", "new")
+game_type = os.getenv("TYPE", "small")
 
 # Gomu Board
-nrow = 7
-ncol = 7
-n_to_win = 5
-game_info = GameInfo(nrow=nrow, ncol=ncol, n_to_win=n_to_win)
+# nrow = 7
+# ncol = 7
+# n_to_win = 5
+game_info = Games[game_type]
+nrow, ncol, n_to_win = game_info()
 
 # Load Agent
-ckp_path = os.getenv("LOAD", "./models/1224-256.pkl")
+ckp_path = os.getenv("CKP", "./models/1224-256.pkl")
 with_history = first_channel != 2
 
 if module_type == "old":
@@ -35,7 +37,7 @@ if module_type == "old":
 else:
     module = NewPolicyValueNet
 
-model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module, channels=[2, 64, 128, 64, 32, 1])
+model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module, channels=[2, 64, 128, 256, 128, 64, 1])
 
 base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 

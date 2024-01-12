@@ -8,6 +8,7 @@ import torchvision
 import torchvision.transforms as T
 import einops
 import random
+import datetime
 
 import multiprocessing
 import wandb
@@ -18,12 +19,13 @@ import matplotlib.pyplot as plt
 import time
 import os
 
-from gomu.base import PolicyValueNet, Unet, Transformer, get_total_parameters, NewPolicyValueNet
+from gomu.helpers import DEBUG
+from gomu.base import get_total_parameters, NewPolicyValueNet
 from gomu.viz import tensor2gomuboard
 
 from gomu.data_utils import GOMUDataset
 
-def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
+def get_loss(policy, value, GT, win, nrow, ncol, mask=None, exploration_rate=0.001, eps=1e-10):
     # cross_loss = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
     # bce = nn.BCELoss()
@@ -31,15 +33,22 @@ def get_loss(policy, value, GT, win, nrow, ncol, exploration_rate=0.05):
     ypred = policy.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
     ypred = ypred.softmax(1)
     y = GT.permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol)
-    cross_en_loss = -(y * torch.log(ypred)).sum(1).mean()
+    # y /= y.sum(-1, keepdim=True)
+    # cross_en_loss = -(y * torch.log(ypred)).sum(1).mean()
+    logistic_loss = -(y*torch.log(ypred+eps) + (1-y)*torch.log(1-ypred+eps))
+    mse_loss = mse(ypred, y)
+    entropy_loss = (ypred * torch.log(ypred+eps))
+    if mask != None:
+        logistic_loss *= mask
+        entropy_loss *= mask
     # Boost the uniform.
-    # entropy_loss = -(ypred * torch.log(ypred)).sum(1).mean()
-    policy_loss = cross_en_loss
+    logistic_loss = logistic_loss.sum(-1).mean()
+    entropy_loss = entropy_loss.sum(-1).mean()
 
     # Value MSE
     value_loss = mse(value, win)
 
-    return policy_loss+value_loss
+    return logistic_loss+mse_loss+exploration_rate*entropy_loss, value_loss
 
 def save_result(x, y, policy, save_base_path, nrow, ncol, epoch, train=True):
     pred_pos_pil = tensor2gomuboard(policy, nrow, ncol, softmax=True, scale=10)
@@ -63,18 +72,21 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
         with tqdm.tqdm(loader) as pbar:
             for step, (X, Y, win) in enumerate(pbar):
                 net.train()
+                # Mask to prevent dumb learning a something.
+                mask = (X.sum(1, keepdim=True)==0).permute(0, 2, 3, 1).contiguous().view(-1, nrow*ncol).detach()
                 policy, value = net(X)
-                loss = get_loss(policy, value, Y, win, nrow, ncol)
+                pi_loss, value_loss = get_loss(policy, value, Y, win, nrow, ncol, mask=mask)
+                loss = pi_loss+value_loss
 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 _loss.append(loss.item()) 
 
-                pbar.set_description(f"{epoch}/{step}")
-                pbar.set_postfix(loss=_loss[-1])
+                pbar.set_description(f"epoch: {epoch} step: {step} pi: {pi_loss.item()} value: {value_loss.item()}")
+                # pbar.set_postfix(loss=_loss[-1])
                 
-                num_correct += ((value>0)==win).sum()
+                num_correct += ((value>0)==((win+1)/2)).sum()
                 num_samples += value.size(0)
             
             save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
@@ -84,10 +96,10 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
             net.eval()
             for (X, Y, win) in tqdm.tqdm(loader, desc="Testing..."):
                 policy, value = net(X)
-                output = get_loss(policy, value, Y, win, nrow, ncol)
-                _loss.append(output.item())
+                pi_loss, value_loss = get_loss(policy, value, Y, win, nrow, ncol)
+                _loss.append((pi_loss+value_loss).item())
 
-                num_correct += ((value>0.5)==win).sum()
+                num_correct += ((value>0)==((win+1)/2)).sum()
                 num_samples += value.size(0)
 
             save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, train=False, epoch=epoch)
@@ -102,6 +114,7 @@ if __name__ == "__main__":
     save_term = int(os.getenv("SAVE_TERM", 1))
     device = os.getenv("DEVICE", "mps")
     save_dir = os.getenv("SAVE", "./tmp")
+    log = bool(int(os.getenv("LOG", 1)))
 
     total_samples = 14000
     # device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -111,22 +124,18 @@ if __name__ == "__main__":
     train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
 
     # batch_size = 256
-    batch_size = 4086
+    batch_size = 128
     train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size, shuffle=False, drop_last=True)
 
     nrow, ncol = 20, 20
     # channels = [2, 8, 36]
-    channels = [2, 64, 128, 256, 128, 64, 1]
+    channels = [2, 64, 128, 64, 1]
     #net = Unet(nrow=nrow, ncol=ncol, channels=channels).to(device)
     dropout = 0.5
     net = NewPolicyValueNet(nrow, ncol, channels, dropout=dropout).to(device)
 
-    # net = torch.compile(not_compiled)
-
-    # net = Transformer(1, 1, (20, 20), 16, 64).to(device)
-    # learning_rate = 0.001
-    learning_rate = 3e-4
+    learning_rate = 1e-3
     optimizer = optim.Adam(net.parameters(), lr=learning_rate)
     total_parameters = get_total_parameters(net)
     print(total_parameters)
@@ -137,21 +146,22 @@ if __name__ == "__main__":
         net.load_state_dict(state_dict=checkpoint["model"])
         optimizer.load_state_dict(state_dict=checkpoint["optim"])
 
-    save_base_path = Path(f"{save_dir}/history_{int(time.time()*1000)}")
+    value = datetime.datetime.fromtimestamp(time.time())
+    save_base_folder_name = value.strftime('%Y%m%d-%H%M%S')
+    save_base_path = Path(f"{save_dir}/history_{save_base_folder_name}")
     save_base_path.mkdir(exist_ok=True)
     (save_base_path / "ckpt").mkdir(exist_ok=True)
     (save_base_path / "evalresults").mkdir(exist_ok=True)
     (save_base_path / "trainresults").mkdir(exist_ok=True)
 
-    grad_clip=2
-
     model_cfg = {"channels": channels, "nrow": nrow, "ncol": ncol, "param": total_parameters, "dropout": dropout}
-    exp_cfg = {"learning_rate": learning_rate, "train_size": train_size, "test_size": test_size, "grad_clip": grad_clip, "total_samples": total_samples}
+    exp_cfg = {"learning_rate": learning_rate, "train_size": train_size, "test_size": test_size, "total_samples": total_samples}
         
-    run = wandb.init(
-        project="AlphaGomu",
-        config={**model_cfg, **exp_cfg}
-    )
+    if log:
+        run = wandb.init(
+            project="AlphaGomu",
+            config={**model_cfg, **exp_cfg}
+        )
 
     train_losses = []
     test_losses = []
@@ -163,10 +173,12 @@ if __name__ == "__main__":
         train_losses.append(train_loss)
         test_losses.append(test_losses)
 
-        run.log({"train/loss": train_loss, "train/acc": train_accuracy, "test/loss": test_loss, "test/acc": test_accuracy})
+        if log:
+            run.log({"train/loss": train_loss, "train/acc": train_accuracy, "test/loss": test_loss, "test/acc": test_accuracy})
 
         if (epoch+1) % save_term == 0:
             save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
             torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, save_path)
 
-        print(f"{epoch}th EPOCH DONE!! ---- Train: {train_loss} | Test: {test_loss}")
+        if DEBUG >= 1:
+            print(f"{epoch}th EPOCH DONE!! ---- Train: {train_loss} | Test: {test_loss}")

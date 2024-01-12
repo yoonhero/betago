@@ -22,9 +22,14 @@ pip install -r requirements.txt
 3. Finally, play against ai.
 
 ```
-GUI=True BOT=qstar MAX_VERTEX=3 MAX_DEPTH=5 ./main.py
+GUI=True BOT=qstar MAX_VERTEX=3 MAX_DEPTH=5 TYPE=gomu ./main.py
 ```
 
+## Or Train From Zero??
+
+```
+DEVICE="your device" LOG=(1 for wandb user) ./mcts.py
+```
 
 ## Method
 

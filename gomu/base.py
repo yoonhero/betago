@@ -353,21 +353,24 @@ class NewPolicyValueNet(nn.Module):
 
         final = nrow * ncol * channels[-1]
 
+        # Pi is required to save the locally information. too deep bottleneck was some sideeffects.
         self.ff = nn.Sequential(
             Rearrange("b c h w -> b (c h w)"),
-            nn.Linear(final, final*3),
-            nn.ReLU(),
-            nn.Linear(final*3, final),
-            nn.ReLU()
+            nn.Linear(final, final),
+            nn.LeakyReLU()
         )
 
         self.pi_conv = nn.Sequential(
+            # nn.Linear(final, final),
+            # nn.LeakyReLU(),
             Rearrange("b (c h w) -> b c h w", c=channels[-1], h=nrow, w=ncol),
-            nn.Conv2d(channels[-1], channels[-1], 1, 1, 0), 
+            nn.Conv2d(channels[-1], channels[-1], 3, 1, 1),
         )
 
         self.val_ff = nn.Sequential(
-            nn.Linear(final, 1),
+            nn.Linear(final, final*3),
+            nn.LeakyReLU(),
+            nn.Linear(final*3, 1),
             (nn.Sigmoid() if sig else nn.Tanh())
         )
 

@@ -8,6 +8,7 @@ import math
 import random
 import wandb
 import time
+import datetime
 from pathlib import Path
 
 import torch
@@ -20,7 +21,7 @@ from gomu.gomuku import GoMuKuBoard
 from gomu.base import PolicyValueNet, NewPolicyValueNet, get_total_parameters
 from gomu.bot import *
 from gomu.game_tree import Graph
-from gomu.helpers import DEBUG
+from gomu.helpers import DEBUG, Games
 
 from train_base import get_loss, training_one_epoch, save_result
 from elo import ELO
@@ -35,23 +36,21 @@ eval_term = int(os.getenv("EVAL_TERM", 1))
 is_mp = bool(int(os.getenv("MP", 0)))
 device = os.getenv("DEVICE", "cpu")
 ckp = os.getenv("CKP", "./models/1224-256.pkl")
-UPDATE_GLOBAL_ITER = 2
 TOTAL_ELO_SIM = 50
 
 max_turn = 2
 model_elo = 100
 base_elo = 500
 
-games = {"small": GameInfo(nrow=7, ncol=7, n_to_win=5), "gomu": GameInfo(20, 20, 5), "tictactoe": GameInfo(3, 3, 3)}
-game_info = games["tictactoe"]
+game_info = Games["tictactoe"]
 nrow, ncol, n_to_win = game_info()
 
 zero_state = np.zeros((2, nrow, ncol))
 
 # Training Hyperparameters
 batch_size = 256
-learning_rate = 5e-4
-weight_decay = 0.1
+learning_rate = 3e-4
+# weight_decay = 0.1
 
 def normal_dist(x, y, xmu, ymu, sig):
     return 1/np.sqrt(2*np.pi*pow(sig, 2)) * np.exp((-pow((x-xmu),2)-pow((y-ymu), 2))/(2*pow(sig, 2)))
@@ -148,6 +147,7 @@ class MCTSNode():
                 child_node = MCTSNode(child_state, parent=self, action=action, agent=self.agent, board_env=self.board_env, prior=prob, args=self.args)
                 self.childrens.append(child_node)
 
+                # If you'd like to visualize mcts graph, it will require more than 1TB+ ram storage. 🔥
                 # self.mcts_graph.addEdge(self, child_node)
 
         return child_node
@@ -162,7 +162,7 @@ class MCTSNode():
         if child.visit_count == 0:
             q_value = 0
         else:
-            q_value = ((child.value_sum / child.visit_count) + 1) / 2
+            q_value = child.value_sum / (child.visit_count + 1) 
         # ucb_score = self.q() / (self.n()+1) + c * math.sqrt(2 * math.log(self.parent.n()) / (self.n()+2))
         return q_value + self.args["C"] * (math.sqrt(self.visit_count) / (child.visit_count + 1)) * child.prior
     
@@ -420,18 +420,18 @@ def normal_train(logger, save_base_path, gnet, opt, args):
     zero.learn()
 
 if __name__ == "__main__":
-    mp.set_start_method('spawn')
+    # mp.set_start_method('spawn')
 
-    args = {"C": 0.1, "num_searches": 60, "num_iterations": 100, "num_self_play_iterations": 100, "num_epochs": 5}
+    args = {"C": 0.1, "num_searches": 300, "num_iterations": 100, "num_self_play_iterations": 300, "num_epochs": 5}
 
     # channels = [2, 64, 128, 256, 128, 64, 32, 1]
     # channels = [2, 64, 128, 64, 1]
-    channels = [2, 64, 128, 64, 32, 1]
+    channels = [2, 64, 128, 64, 1]
     dropout = 0.2
     model = NewPolicyValueNet(nrow=nrow, ncol=ncol, channels=channels, dropout=dropout)
     model.to(device)
     # model = load_base(game_info, first_channel=2, device=device, ckp_path=ckp)
-    model.share_memory()
+    # model.share_memory()
 
     # agent = PytorchAgent(model=model, device=device, n_to_win=n_to_win, with_history=False)
 
@@ -444,12 +444,16 @@ if __name__ == "__main__":
     total_parameters = get_total_parameters(model)
     print(total_parameters)
 
+    value = datetime.datetime.fromtimestamp(time.time())
+    save_base_folder_name = value.strftime('%Y%m%d-%H%M%S')
+    save_base_path = Path(f"./tmp/history_{save_base_folder_name}")
     save_base_path = Path(f"./tmp/history_{int(time.time()*1000)}")
     Path("./tmp").mkdir(exist_ok=True)
     save_base_path.mkdir(exist_ok=True)
     (save_base_path / "ckpt").mkdir(exist_ok=True)
     (save_base_path / "evalresults").mkdir(exist_ok=True)
     (save_base_path / "trainresults").mkdir(exist_ok=True)
+    print(save_base_path)
 
     if log:
         logger = wandb.init(

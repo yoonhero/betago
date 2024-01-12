@@ -38,4 +38,5 @@ models_channels = {
     "new": [2, 64, 128, 64, 32, 1]
 }
 
-base_game_info = GameInfo(20, 20, 5)
+Games = {"small": GameInfo(nrow=7, ncol=7, n_to_win=5), "gomu": GameInfo(20, 20, 5), "tictactoe": GameInfo(3, 3, 3)}
+base_game_info = Games["gomu"]
