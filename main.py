@@ -37,7 +37,7 @@ if module_type == "old":
 else:
     module = NewPolicyValueNet
 
-model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module, channels=[2, 64, 128, 256, 128, 64, 1])
+model = load_base(game_info=game_info, device=device, ckp_path=ckp_path, module=module, channels=[2, 64, 128, 64, 1])
 
 base_config = {"model": model, "device": device, "n_to_win":n_to_win, "with_history": with_history}
 

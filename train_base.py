@@ -18,6 +18,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import os
+from essential import exp_logger
 
 from gomu.helpers import DEBUG
 from gomu.base import get_total_parameters, NewPolicyValueNet
@@ -50,20 +51,17 @@ def get_loss(policy, value, GT, win, nrow, ncol, mask=None, exploration_rate=0.0
 
     return logistic_loss+mse_loss+exploration_rate*entropy_loss, value_loss
 
-def save_result(x, y, policy, save_base_path, nrow, ncol, epoch, train=True):
+def save_result(x, y, policy, nrow, ncol, epoch, logger, train=True):
     pred_pos_pil = tensor2gomuboard(policy, nrow, ncol, softmax=True, scale=10)
     concatenated = x[0]-x[-1]
     ground_true_pil = tensor2gomuboard(2*(y!=0)+concatenated, nrow, ncol)
     if train:
-        eval_result_path = save_base_path / f"trainresults/{epoch}-pred.png"
-        eval_gt_path = save_base_path / f"trainresults/{epoch}-gt.png"
+        tag = "trainresults"
     else:
-        eval_result_path = save_base_path / f"evalresults/{epoch}-pred.png"
-        eval_gt_path = save_base_path / f"evalresults/{epoch}-gt.png"
-    pred_pos_pil.save(eval_result_path)
-    ground_true_pil.save(eval_gt_path)
+        tag = "evalresults"
+    logger.save_images(tag, [pred_pos_pil, ground_true_pil], epoch, ["pred", "gt"])
 
-def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save_base_path):
+def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, **kwargs):
     _loss = []
     num_correct = 0
     num_samples = 0
@@ -89,7 +87,7 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
                 num_correct += ((value>0)==((win+1)/2)).sum()
                 num_samples += value.size(0)
             
-            save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, epoch=epoch)
+            save_result(X[0], Y[0], policy[0], nrow=nrow, ncol=ncol, epoch=epoch, **kwargs)
 
     if not training:
         with torch.no_grad():
@@ -102,7 +100,7 @@ def training_one_epoch(loader, net, optimizer, training, epoch, nrow, ncol, save
                 num_correct += ((value>0)==((win+1)/2)).sum()
                 num_samples += value.size(0)
 
-            save_result(X[0], Y[0], policy[0], save_base_path, nrow=nrow, ncol=ncol, train=False, epoch=epoch)
+            save_result(X[0], Y[0], policy[0], nrow=nrow, ncol=ncol, train=False, epoch=epoch, **kwargs)
 
     return sum(_loss) / len(_loss), num_correct / num_samples
 
@@ -116,7 +114,8 @@ if __name__ == "__main__":
     save_dir = os.getenv("SAVE", "./tmp")
     log = bool(int(os.getenv("LOG", 1)))
 
-    total_samples = 14000
+    # total_samples = 14000
+    total_samples = 100
     # device = "mps" if torch.backends.mps.is_available() else "cpu"
     full_dataset = GOMUDataset(total_samples, device=device)
     train_size = int(0.8 * len(full_dataset))
@@ -146,39 +145,37 @@ if __name__ == "__main__":
         net.load_state_dict(state_dict=checkpoint["model"])
         optimizer.load_state_dict(state_dict=checkpoint["optim"])
 
-    value = datetime.datetime.fromtimestamp(time.time())
-    save_base_folder_name = value.strftime('%Y%m%d-%H%M%S')
-    save_base_path = Path(f"{save_dir}/history_{save_base_folder_name}")
-    save_base_path.mkdir(exist_ok=True)
-    (save_base_path / "ckpt").mkdir(exist_ok=True)
-    (save_base_path / "evalresults").mkdir(exist_ok=True)
-    (save_base_path / "trainresults").mkdir(exist_ok=True)
+    # value = datetime.datetime.fromtimestamp(time.time())
+    # save_base_folder_name = value.strftime('%Y%m%d-%H%M%S')
+    # save_base_path = Path(f"{save_dir}/history_{save_base_folder_name}")
+    # save_base_path.mkdir(exist_ok=True)
+    # (save_base_path / "ckpt").mkdir(exist_ok=True)
+    # (save_base_path / "evalresults").mkdir(exist_ok=True)
+    # (save_base_path / "trainresults").mkdir(exist_ok=True)
 
     model_cfg = {"channels": channels, "nrow": nrow, "ncol": ncol, "param": total_parameters, "dropout": dropout}
     exp_cfg = {"learning_rate": learning_rate, "train_size": train_size, "test_size": test_size, "total_samples": total_samples}
+    configs = {**model_cfg, **exp_cfg}
         
     if log:
-        run = wandb.init(
-            project="AlphaGomu",
-            config={**model_cfg, **exp_cfg}
-        )
+        mode = exp_logger.ONLINE
+    else: mode = exp_logger.OFFLINE
+    run = exp_logger.Logger(mode, run_name="AlphaGomu", configs=configs)
 
     train_losses = []
     test_losses = []
     nb_epoch = 50
     for epoch in range(nb_epoch):
-        train_loss, train_accuracy= training_one_epoch(train_loader, net, optimizer, True, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
-        test_loss, test_accuracy = training_one_epoch(test_loader, net, optimizer, False, epoch, nrow=nrow, ncol=ncol, save_base_path=save_base_path)
+        train_loss, train_accuracy= training_one_epoch(train_loader, net, optimizer, True, epoch, nrow=nrow, ncol=ncol, logger=run)
+        test_loss, test_accuracy = training_one_epoch(test_loader, net, optimizer, False, epoch, nrow=nrow, ncol=ncol, logger=run)
 
         train_losses.append(train_loss)
         test_losses.append(test_losses)
 
-        if log:
-            run.log({"train/loss": train_loss, "train/acc": train_accuracy, "test/loss": test_loss, "test/acc": test_accuracy})
+        run.log({"train/loss": train_loss, "train/acc": train_accuracy, "test/loss": test_loss, "test/acc": test_accuracy}, epoch)
 
         if (epoch+1) % save_term == 0:
-            save_path = save_base_path / f"ckpt/epoch-{epoch}.pkl"
-            torch.save({"model": net.state_dict(), "optim": optimizer.state_dict()}, save_path)
+            run.log_ckp(net, optimizer, f"epoch-{epoch}.pkl")
 
         if DEBUG >= 1:
             print(f"{epoch}th EPOCH DONE!! ---- Train: {train_loss} | Test: {test_loss}")

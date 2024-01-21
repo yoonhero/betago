@@ -88,7 +88,7 @@ if __name__ == "__main__":
     device = "cpu"
     model_path = os.getenv("CKP", "./models/1224-256.pkl")
     game_info = GameInfo(nrow=20, ncol=20, n_to_win=5)
-    channels = [2, 64, 128, 256, 128, 64, 1]
+    channels = [2, 64, 128, 64, 1]
     model = load_base(game_info=game_info, device=device, module=NewPolicyValueNet, ckp_path=model_path, channels=channels)
     model = PytorchAgent(model, device=device, n_to_win=game_info.n_to_win, with_history=False)
 
